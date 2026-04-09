@@ -18,6 +18,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import * as docx from "docx";
+import JSZip from "jszip";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -100,7 +101,6 @@ async function main(): Promise<number> {
     const buf = fs.readFileSync(FIXTURE);
     // Extract word/document.xml from the DOCX (DOCX = zip) via JSZip so we can
     // hand the raw XML to docx.js's importer.
-    const JSZip = (await import("jszip")).default;
     const zip = await JSZip.loadAsync(buf);
     const docXmlFile = zip.file("word/document.xml");
     if (docXmlFile === null) {
@@ -137,15 +137,15 @@ async function main(): Promise<number> {
   header("PROBE 2: Could we rebuild a new doc from extracted content?");
 
   const buf = fs.readFileSync(FIXTURE);
-  const JSZip = (await import("jszip")).default;
   const zip = await JSZip.loadAsync(buf);
 
   const parts = Object.keys(zip.files).filter((k) => !zip.files[k]!.dir);
   console.log(`\n  The fixture DOCX contains ${parts.length} parts:`);
   for (const p of parts) {
-    const size = (zip.files[p]! as { _data: { uncompressedSize: number } })
-      ._data.uncompressedSize;
-    console.log(`    ${p.padEnd(40)} ${size.toString().padStart(6)} bytes`);
+    // Read the uncompressed bytes through the public API. Adds a tiny cost
+    // (we already have the file in memory) but stays out of JSZip internals.
+    const bytes = await zip.files[p]!.async("uint8array");
+    console.log(`    ${p.padEnd(40)} ${bytes.length.toString().padStart(6)} bytes`);
   }
 
   console.log(

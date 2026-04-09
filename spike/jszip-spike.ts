@@ -28,6 +28,19 @@ import { fileURLToPath } from "node:url";
 
 import JSZip from "jszip";
 
+// Lane B modules — extracted from this spike on 2026-04-10. The spike now
+// uses the production code as a final integration smoke test.
+import {
+  flattenTrackChanges,
+  hasTrackChanges,
+} from "../src/docx/flatten-track-changes.js";
+import {
+  dropCommentsPart,
+  stripCommentReferences,
+} from "../src/docx/strip-comments.js";
+import { scrubDocxMetadata } from "../src/docx/scrub-metadata.js";
+import { listScopes, readScopeXml } from "../src/docx/scopes.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
 const FIXTURE = path.join(
@@ -110,114 +123,22 @@ function row(r: CheckResult): void {
 }
 
 /**
- * Return the list of DOCX part paths (inside the zip) that contain
- * user-authored text we need to walk for redaction. This is the "10-scope
- * walker" from eng-review lock-in #1 translated into part-path patterns.
- */
-function scopesInZip(zip: JSZip): string[] {
-  const scopes: string[] = [];
-  const candidates = [
-    "word/document.xml",
-    "word/footnotes.xml",
-    "word/endnotes.xml",
-  ];
-  for (const c of candidates) {
-    if (zip.file(c)) scopes.push(c);
-  }
-  // Walk all header*.xml / footer*.xml (there can be multiple per section)
-  const names = Object.keys(zip.files);
-  for (const n of names) {
-    if (/^word\/(header|footer)\d*\.xml$/.test(n)) scopes.push(n);
-  }
-  return scopes;
-}
-
-/**
- * Flatten track changes in a single XML string.
- *
- * Track changes appear as:
- *   <w:ins ...><w:r><w:t>inserted text</w:t></w:r></w:ins>
- *   <w:del ...><w:r><w:delText>deleted text</w:delText></w:r></w:del>
- *
- * "Flatten" means: unwrap w:ins (keep the inner w:r), drop w:del entirely.
- * We do this with regex because the structure is well-defined and this
- * spike intentionally avoids pulling in a heavy XML DOM parser.
- *
- * In production, we'll validate this with the same targeted tests the
- * eng review demanded (100% branch coverage on a flatten() unit test).
- */
-function flattenTrackChanges(xml: string): string {
-  let out = xml;
-  // Drop all <w:del .../> and <w:del>...</w:del> entirely (deleted text gone)
-  out = out.replace(/<w:del\b[^>]*\/>/g, "");
-  out = out.replace(/<w:del\b[^>]*>[\s\S]*?<\/w:del>/g, "");
-  // Unwrap <w:ins>...</w:ins>: keep the inner XML, drop the wrapper
-  out = out.replace(
-    /<w:ins\b[^>]*>([\s\S]*?)<\/w:ins>/g,
-    (_m, inner: string) => inner,
-  );
-  return out;
-}
-
-/**
  * Apply a list of redactions to an XML string by doing plain string
  * replacement of each redaction target with [REDACTED].
  *
- * IMPORTANT CAVEAT (documented for future eng review): WordprocessingML
- * splits runs of text across multiple <w:t> elements, so a string like
- * "ABC Corporation" might in principle span two or more runs as
- * "ABC Corpo" / "ration" due to formatting runs or spell-check markup.
- * A production implementation MUST run a "text run coalescer" pass
- * before string search. For THIS spike, python-docx writes runs as
- * single <w:t> elements so plain string replace is sufficient to
- * validate the round-trip property we care about.
+ * NOTE (Lane B): real Word files split text runs across formatting
+ * boundaries, which means plain string replace can MISS targets. The
+ * production redactor will use src/docx/coalesce.ts to build a logical
+ * paragraph view first, then map substitutions back to runs. The spike
+ * fixture uses python-docx which writes single-run text, so plain
+ * replace is sufficient to validate the round-trip property here.
  */
 function redactXml(xml: string, targets: readonly string[]): string {
   let out = xml;
   for (const t of targets) {
-    // Escape nothing; we want literal replacement.
     out = out.split(t).join(PLACEHOLDER);
   }
   return out;
-}
-
-/**
- * Strip the comments.xml part and remove comment references from document.xml.
- */
-function stripComments(zip: JSZip): void {
-  // Delete the comments part itself
-  zip.remove("word/comments.xml");
-  // Also drop the content-types override and relationship, but at this
-  // spike's scope we can leave the orphaned pointers in place — Word
-  // tolerates missing optional parts. A production version will clean
-  // both [Content_Types].xml and word/_rels/document.xml.rels properly.
-}
-
-/**
- * Strip comment range markers and references from every text part.
- * Without this, Word may complain that a referenced comment is missing.
- */
-function stripCommentReferences(xml: string): string {
-  let out = xml;
-  out = out.replace(/<w:commentRangeStart\b[^>]*\/>/g, "");
-  out = out.replace(/<w:commentRangeEnd\b[^>]*\/>/g, "");
-  // commentReference lives inside a w:r; we can drop the surrounding run
-  // entirely if it only contains the reference. Pragmatic: just drop the
-  // <w:commentReference/> element. Word is tolerant of empty runs.
-  out = out.replace(/<w:commentReference\b[^>]*\/>/g, "");
-  return out;
-}
-
-/**
- * Scrub the DOCX metadata (docProps/core.xml + docProps/app.xml) by
- * replacing sensitive fields with empty strings.
- */
-function scrubMetadata(zip: JSZip): void {
-  const core = zip.file("docProps/core.xml");
-  if (core !== null) {
-    // This call is inside an async function already; deferring the read.
-  }
-  // See main() for the actual async scrub.
 }
 
 async function main(): Promise<number> {
@@ -241,15 +162,18 @@ async function main(): Promise<number> {
   const buf = fs.readFileSync(FIXTURE);
   const zip = await JSZip.loadAsync(buf);
 
-  const scopes = scopesInZip(zip);
+  // Use the production scope walker (Lane B). The walker resolves header/footer
+  // numerics, sorts in canonical order, and tags each entry with a kind so the
+  // caller can apply scope-specific policies later.
+  const scopes = listScopes(zip).filter((s) => s.kind !== "comments");
   console.log(`\n  Found ${scopes.length} text-bearing scopes:`);
-  for (const s of scopes) console.log(`    ${s}`);
+  for (const s of scopes) console.log(`    ${s.path} (${s.kind})`);
 
   // Sanity: confirm all redaction targets exist somewhere in the fixture
   console.log(`\n  Confirming redaction targets exist in fixture:`);
   const combined: string[] = [];
   for (const s of scopes) {
-    const xml = await zip.file(s)!.async("string");
+    const xml = await readScopeXml(zip, s);
     combined.push(xml);
   }
   const joined = combined.join("\n");
@@ -268,56 +192,28 @@ async function main(): Promise<number> {
   // ────────────────────────────────────────────────────────────────────────
   header("STEP 2: Flatten track changes, strip comments, redact, scrub");
 
-  let totalReplacements = 0;
   for (const s of scopes) {
-    let xml = await zip.file(s)!.async("string");
+    let xml = await readScopeXml(zip, s);
     const before = xml.length;
 
     xml = flattenTrackChanges(xml);
     xml = stripCommentReferences(xml);
     xml = redactXml(xml, REDACTIONS);
 
-    zip.file(s, xml);
+    zip.file(s.path, xml);
     const after = xml.length;
-    totalReplacements += Math.max(0, before - after);
     console.log(
-      `    ${s.padEnd(28)} ${before.toString().padStart(6)} → ${after.toString().padStart(6)} bytes`,
+      `    ${s.path.padEnd(28)} ${before.toString().padStart(6)} → ${after.toString().padStart(6)} bytes`,
     );
   }
 
-  // Strip the comments.xml part entirely
-  stripComments(zip);
-  console.log(`    ✓ dropped word/comments.xml`);
+  // Strip the comments part (and any companion parts like commentsExtended)
+  dropCommentsPart(zip);
+  console.log(`    ✓ dropped word/comments.xml (and companion parts)`);
 
-  // Metadata scrub (in-band because we need await)
-  const corePart = zip.file("docProps/core.xml");
-  if (corePart !== null) {
-    let coreXml = await corePart.async("string");
-    coreXml = coreXml
-      .replace(/<dc:creator>[^<]*<\/dc:creator>/g, "<dc:creator></dc:creator>")
-      .replace(
-        /<cp:lastModifiedBy>[^<]*<\/cp:lastModifiedBy>/g,
-        "<cp:lastModifiedBy></cp:lastModifiedBy>",
-      )
-      .replace(
-        /<dc:title>[^<]*<\/dc:title>/g,
-        "<dc:title></dc:title>",
-      )
-      .replace(
-        /<dc:subject>[^<]*<\/dc:subject>/g,
-        "<dc:subject></dc:subject>",
-      );
-    zip.file("docProps/core.xml", coreXml);
-    console.log(`    ✓ scrubbed docProps/core.xml (author, title, subject)`);
-  }
-
-  const appPart = zip.file("docProps/app.xml");
-  if (appPart !== null) {
-    let appXml = await appPart.async("string");
-    appXml = appXml.replace(/<Company>[^<]*<\/Company>/g, "<Company></Company>");
-    zip.file("docProps/app.xml", appXml);
-    console.log(`    ✓ scrubbed docProps/app.xml (Company)`);
-  }
+  // Scrub docProps/core.xml + app.xml using the production module.
+  await scrubDocxMetadata(zip);
+  console.log(`    ✓ scrubbed docProps/core.xml + docProps/app.xml`);
 
   // ────────────────────────────────────────────────────────────────────────
   // Step 3: Re-zip
@@ -340,28 +236,30 @@ async function main(): Promise<number> {
   header("STEP 4: Round-trip verification (zero-miss gate)");
 
   const outputZip = await JSZip.loadAsync(fs.readFileSync(OUT_FILE));
-  const outScopes = scopesInZip(outputZip);
+  const outScopes = listScopes(outputZip).filter(
+    (s) => s.kind !== "comments",
+  );
 
   let survived = 0;
   const survivingStrings: { target: string; scope: string; count: number }[] = [];
   for (const s of outScopes) {
-    const xml = await outputZip.file(s)!.async("string");
+    const xml = await readScopeXml(outputZip, s);
     for (const target of REDACTIONS) {
       const count = (xml.match(new RegExp(escapeRegex(target), "g")) ?? [])
         .length;
       if (count > 0) {
         survived += count;
-        survivingStrings.push({ target, scope: s, count });
+        survivingStrings.push({ target, scope: s.path, count });
       }
     }
   }
 
   if (survived === 0) {
-    console.log(`\n  ✓ zero sensitive strings survived across ${outScopes.length} scopes`);
-  } else {
     console.log(
-      `\n  ✗ ${survived} sensitive strings survived in the output:`,
+      `\n  ✓ zero sensitive strings survived across ${outScopes.length} scopes`,
     );
+  } else {
+    console.log(`\n  ✗ ${survived} sensitive strings survived in the output:`);
     for (const h of survivingStrings) {
       console.log(`      '${h.target}' × ${h.count} in ${h.scope}`);
     }
@@ -407,14 +305,12 @@ async function main(): Promise<number> {
   }
 
   // Verify track changes tags are gone from document.xml
-  const hasIns = /<w:ins\b/.test(docXml);
-  const hasDel = /<w:del\b/.test(docXml);
-  if (!hasIns && !hasDel) {
+  // Use the production predicate from src/docx/flatten-track-changes.
+  const hasTc = hasTrackChanges(docXml);
+  if (!hasTc) {
     console.log(`    ✓ track changes flattened (no w:ins, no w:del in document.xml)`);
   } else {
-    console.log(
-      `    ✗ track changes NOT flattened: w:ins=${hasIns}, w:del=${hasDel}`,
-    );
+    console.log(`    ✗ track changes NOT flattened (hasTrackChanges=true)`);
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -427,7 +323,7 @@ async function main(): Promise<number> {
   // their replacement without breaking the XML surrounding them.
   // (Korean Unicode probes are item #4, not item #1.)
   const allScopesPresent = scopes.every(
-    (s) => outputZip.file(s) !== null,
+    (s) => outputZip.file(s.path) !== null,
   );
   const textPreservation: CheckResult = {
     id: 1,
@@ -442,8 +338,8 @@ async function main(): Promise<number> {
   const trackChanges: CheckResult = {
     id: 2,
     item: "Track changes flattened cleanly",
-    status: !hasIns && !hasDel ? "PASS" : "FAIL",
-    evidence: !hasIns && !hasDel ? "w:ins/w:del dropped" : "tags remain",
+    status: !hasTc ? "PASS" : "FAIL",
+    evidence: !hasTc ? "w:ins/w:del dropped" : "tags remain",
   };
   const comments: CheckResult = {
     id: 3,

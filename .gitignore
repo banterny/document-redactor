@@ -8,6 +8,9 @@ node_modules/
 dist/
 build/
 
+# Test coverage reports
+coverage/
+
 # Environment / secrets
 .env
 .env.local
