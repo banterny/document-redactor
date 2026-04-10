@@ -29,3 +29,26 @@ tests/fixtures/generated/
 __pycache__/
 *.pyc
 .venv/
+
+# ─────────────────────────────────────────────────
+# Internal design docs & build logs — NOT for public repo.
+# These live locally for author reference only.
+# See docs/superpowers/specs/2026-04-10-lane-f-2-release-automation-design.md
+# Appendix A for the pre-public transition checklist that removes these
+# from existing git history before making the repo public.
+# ─────────────────────────────────────────────────
+brainstorm.md
+design-v1.md
+office-hours-*.md
+session-log-*.md
+document-redactor-mock-*.html
+mocks/
+TODOS.md
+
+# Superpowers workflow artifacts (specs, plans, worklogs)
+docs/superpowers/
+
+# Private scratchpads
+NOTES.md
+SCRATCH.md
+*.private.md

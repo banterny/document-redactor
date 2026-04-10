@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re-)release, e.g. v1.0.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # Resolve the tag FIRST, before any checkout. This step only
+      # validates an input and derives a canonical value — it needs
+      # no repo files. Malformed input fails in ~1 second instead
+      # of after checkout + bun install.
+      #
+      # Script injection defense: tag values come via `env:` block,
+      # NOT direct ${{ }} interpolation into the `run:` body.
+      - name: Resolve release tag
+        id: resolve_tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          PUSH_TAG: ${{ github.ref_name }}
+        run: |
+          TAG="${INPUT_TAG:-$PUSH_TAG}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag '$TAG' does not match v*.*.*"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout (at resolved tag)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve_tag.outputs.tag }}
+
+      - name: Lint GitHub Actions workflows
+        uses: reviewdog/action-actionlint@v1
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies (frozen)
+        run: bun install --frozen-lockfile
+
+      - name: Verify tag matches package.json version
+        env:
+          TAG: ${{ steps.resolve_tag.outputs.tag }}
+        run: |
+          TAG_VERSION="${TAG#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag $TAG does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+          echo "Tag/version match: $TAG ↔ $PKG_VERSION"
+
+      - name: Verify release notes file exists
+        env:
+          TAG: ${{ steps.resolve_tag.outputs.tag }}
+        run: |
+          NOTES="release-notes/${TAG}.md"
+          if [ ! -f "$NOTES" ]; then
+            echo "::error::Release notes file $NOTES not found. Create it before tagging."
+            exit 1
+          fi
+          echo "Release notes found: $NOTES"
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun run test
+
+      - name: Build
+        run: bun run build
+
+      - name: Verify sidecar integrity
+        working-directory: dist
+        run: |
+          test -f document-redactor.html
+          test -f document-redactor.html.sha256
+          sha256sum -c document-redactor.html.sha256
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve_tag.outputs.tag }}
+        run: |
+          gh release create "$TAG" \
+            --title "document-redactor $TAG" \
+            --notes-file "release-notes/${TAG}.md" \
+            --verify-tag \
+            dist/document-redactor.html \
+            dist/document-redactor.html.sha256

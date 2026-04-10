@@ -27,6 +27,7 @@
  *      is the source-level backstop; CSP is the runtime backstop).
  */
 
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { defineConfig, type Plugin } from "vite";
@@ -89,10 +90,38 @@ function shipGate(): Plugin {
         );
       }
 
+      // Invariant #6: SHA-256 sidecar for release integrity verification.
+      // Writes `document-redactor.html.sha256` next to the HTML in
+      // GNU coreutils text-mode format, readable by `sha256sum -c`.
+      //
+      // Reading bytes separately (instead of reusing the `html` string
+      // above) avoids any utf-8 round-trip ambiguity — createHash wants
+      // a Buffer of the raw file bytes.
+      const htmlBytes = fs.readFileSync(finalPath);
+      if (htmlBytes.length === 0) {
+        throw new Error(
+          `[ship-gate] cannot hash ${finalPath} — empty file. ` +
+          `An earlier invariant should have caught this.`,
+        );
+      }
+      const hash = createHash("sha256").update(htmlBytes).digest("hex");
+      const sidecarPath = finalPath + ".sha256";
+
+      // Format: "<64 hex chars><space><space><filename><newline>"
+      // Two-space separator = GNU coreutils text mode (the default
+      // format `sha256sum <file>` outputs). This is the form
+      // `sha256sum -c` expects. Binary mode would use `<space><*>`;
+      // both are valid but text mode is the ubiquitous default.
+      fs.writeFileSync(
+        sidecarPath,
+        `${hash}  ${OUTPUT_FILENAME}\n`,
+      );
+
       // Report.
       // eslint-disable-next-line no-console
       console.log(
-        `\n[ship-gate] ✓ ${OUTPUT_FILENAME}  ${sizeMb.toFixed(2)} MB / 3 MB cap`,
+        `\n[ship-gate] ✓ ${OUTPUT_FILENAME}  ${sizeMb.toFixed(2)} MB / 3 MB cap` +
+        `\n[ship-gate] ✓ ${OUTPUT_FILENAME}.sha256  ${hash.slice(0, 8)}…${hash.slice(-8)}`,
       );
     },
   };

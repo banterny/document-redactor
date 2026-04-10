@@ -26,6 +26,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -110,5 +111,18 @@ describe("ship gate — single-file build", () => {
   it("does not ship XMLHttpRequest or WebSocket calls", () => {
     expect(html).not.toMatch(/\bXMLHttpRequest\b/);
     expect(html).not.toMatch(/new\s+WebSocket\b/);
+  });
+
+  it("writes a sha256sum-compatible sidecar next to the HTML", () => {
+    const sidecarPath = ARTIFACT + ".sha256";
+    expect(fs.existsSync(sidecarPath)).toBe(true);
+
+    const htmlBytes = fs.readFileSync(ARTIFACT);
+    const expected = createHash("sha256").update(htmlBytes).digest("hex");
+    const sidecarContent = fs.readFileSync(sidecarPath, "utf-8");
+
+    // Exact format: "<64 hex chars><space><space>document-redactor.html<\n>"
+    // Two-space separator = GNU coreutils text mode, parseable by `sha256sum -c`.
+    expect(sidecarContent).toBe(`${expected}  document-redactor.html\n`);
   });
 });
