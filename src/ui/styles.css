@@ -1,0 +1,93 @@
+/*
+ * Global styles + design tokens.
+ *
+ * Svelte components scope their <style> blocks by default, which is what
+ * we want for per-component styling — but CSS custom properties and
+ * html/body resets need to be global. This file is imported from
+ * `main.ts` (not from a component) so the tokens and resets live at the
+ * document level and every component can use `var(--primary)` etc.
+ *
+ * The palette, radii, shadows, and typography choices all come from
+ * `mocks/index.html` (the design review artifact). Keep those two in
+ * sync — a change here is a change to the product's visual identity.
+ */
+
+:root {
+  /* Slate palette — Parlawatch-inspired */
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --ink: #1e293b;
+  --ink-strong: #0f172a;
+  --ink-soft: #64748b;
+  --ink-muted: #94a3b8;
+
+  /* Blue primary — interactive voice */
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-bg: #eff6ff;
+  --primary-border: #bfdbfe;
+  --primary-ink: #1d4ed8;
+
+  /* Redaction black */
+  --accent: #0f172a;
+  --accent-soft: #1e293b;
+
+  /* Semantic */
+  --ok: #16a34a;
+  --ok-bg: #f0fdf4;
+  --ok-border: #86efac;
+  --warn: #d97706;
+  --warn-bg: #fffbeb;
+  --warn-border: #fde68a;
+  --err: #dc2626;
+  --err-bg: #fef2f2;
+  --err-border: #fecaca;
+
+  /* Highlights */
+  --mark: #fef3c7;
+  --mark-strong: #fde68a;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 20px 60px rgba(15, 23, 42, 0.15);
+
+  --radius: 8px;
+  --radius-lg: 10px;
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    "Apple SD Gothic Neo", "Noto Sans KR", Helvetica, Arial, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  height: 100%;
+}
+
+#app {
+  height: 100%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}

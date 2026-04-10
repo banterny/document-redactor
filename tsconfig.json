@@ -32,7 +32,15 @@
     "noEmit": true,
     "isolatedModules": true,
 
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+
+    // Svelte 5 components need to import `.svelte.ts` state modules by
+    // their full path including the extension (because the Svelte
+    // compiler needs the `.svelte.ts` suffix to know it should enable
+    // runes mode for that file). TypeScript normally rejects `.ts`
+    // extensions in imports unless this flag is set. It's only safe
+    // with `noEmit` (which we have — Vite does the emit).
+    "allowImportingTsExtensions": true
   },
   "include": [
     "src/**/*.ts",
