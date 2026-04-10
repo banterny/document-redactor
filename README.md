@@ -9,8 +9,22 @@
 
 [![한국어 README](https://img.shields.io/badge/lang-한국어-2563eb)](README.ko.md)
 
-> **A privacy-preserving, in-browser DOCX redactor for Korean + English legal documents.**
-> Drop a `.docx` file. Review the detected entities and PII. Click **Apply and verify**. Download the redacted copy. Zero network requests, zero uploads, zero accounts. Runs offline in any modern browser from a single HTML file.
+─────────────────────────────────────────────────────────────
+
+## The problem this solves
+
+You want to run a contract — or an opinion, a brief, a memo, a judge's order — through ChatGPT, Claude, Perplexity, or any other LLM for a summary, a clause review, or a quick legal risk check. But the document has **company names, counterparty details, phone numbers, 주민등록번호, account numbers, case numbers**. You can't just upload it.
+
+So every single time, you:
+
+1. Open the file in Word
+2. Manually delete, or `Ctrl+H` search-and-replace, every sensitive string
+3. Squint at the screen hoping nothing was missed
+4. Cross your fingers and paste
+
+**`document-redactor` does all of that in one click.** Drop the file. Review what the tool found. Press Apply. Download the redacted copy. No internet connection, no installation, no terminal, no account, no upload — and a hash check on the download so you know the tool itself hasn't been tampered with on its way to you.
+
+One HTML file, ~180 KB, runs in your browser, offline, from your disk.
 
 ─────────────────────────────────────────────────────────────
 
@@ -21,10 +35,10 @@
 | An offline tool that runs in your browser | A cloud service |
 | One HTML file (~180 KB) you download once | An installer or a native app |
 | A rule-based, deterministic redactor | An AI model — there is no model, no LLM, no "magic" |
-| A tool you can read the source of and verify with `sha256sum` | A black box you have to trust |
+| A tool whose full source you can read and audit yourself | A black box you have to trust |
 | Apache 2.0-licensed, reviewable by you or your AI assistant | Proprietary software with hidden behavior |
 
-If someone tells you it "probably uses ChatGPT" or "sends your files somewhere for processing" — they are wrong. The whole thing is 180 KB of JavaScript, CSS, and HTML sitting on your disk. You can open it in a text editor. You can search it for the word `fetch`. You will find zero matches. That's the point.
+If someone tells you this tool "probably uses ChatGPT" or "sends your files somewhere for processing," here's the simplest test you can run yourself: **turn on airplane mode. Disconnect your WiFi. Unplug the ethernet cable.** Then open the tool and use it on a real document. Everything still works. The drop zone accepts your file, candidates get detected, redaction runs, the download button saves the output. A tool that needed the internet to function would fail at this point — this one doesn't, because it has no way to talk to the internet in the first place.
 
 ─────────────────────────────────────────────────────────────
 
@@ -52,6 +66,34 @@ For a detailed walkthrough — including the candidate review model, keyboard sh
 
 ─────────────────────────────────────────────────────────────
 
+## Why two files? (The `.sha256` sidecar)
+
+Every release ships **two** files: the tool itself and a tiny text file ending in `.sha256`. Here's why.
+
+Imagine you download the tool and then forward it to a colleague via Kakao, email, or a USB stick. Somewhere between you and them, the file passes through:
+
+- **Corporate proxies and DLP systems** that sometimes rewrite attachments
+- **Email gateways** that can modify MIME encodings
+- **Messaging apps** that re-compress or transcode files
+- **Malicious network intermediaries** (the classic "man in the middle" scenario)
+
+Any of these could quietly change the file — even a single byte — and your colleague would have no way to notice. For a legal tool that must run exactly as audited, that's unacceptable.
+
+The `.sha256` sidecar is the solution. It contains a 64-character **cryptographic fingerprint** of the original HTML file. Your colleague runs one command:
+
+```bash
+sha256sum -c document-redactor.html.sha256
+```
+
+- ✅ If the output says `document-redactor.html: OK` — the file is **byte-for-byte identical** to what the author published. Every bit matches. Safe to run.
+- ❌ If the output says anything else — **something between the author and them modified the file**. Do not run it. Re-download from the official releases page.
+
+**The sidecar is not a signature you have to trust the sidecar itself.** The fingerprint is mathematically derived from the HTML — changing either file by one character makes the check fail. The hash that matters is the one on the official [GitHub Releases page](https://github.com/kipeum86/document-redactor/releases/latest), publicly visible, built by CI from the tagged source commit. That's the ground truth.
+
+Think of it as a tamper-evident seal on an envelope: if the seal is intact, the letter inside hasn't been opened. The difference is that SHA-256 fingerprints cannot be forged.
+
+─────────────────────────────────────────────────────────────
+
 ## How it works (briefly)
 
 ```mermaid
@@ -60,13 +102,13 @@ flowchart LR
         direction LR
         A([Drop .docx]) --> B[Parse<br/>JSZip + raw XML]
         B --> C[Detect<br/>PII regex<br/>+ your seeds]
-        C --> D[/Review<br/>toggle candidates/]
+        C --> D{Review<br/>toggle candidates}
         D --> E[Redact + Verify<br/>cross-run rewrite]
         E --> F([Download<br/>.redacted.docx<br/>+ SHA-256])
     end
 ```
 
-Rounded caps are I/O (file in, file out). Rectangles are fully automated steps. The parallelogram is the one place a human decides anything — you review the detected candidates and toggle which ones to redact. **Everything inside the subgraph runs in your browser tab.** No network call, no server round-trip, no background worker. The tool loads the `.docx` as a zip (Word files are zips of XML), walks every text-bearing scope (body, footnotes, endnotes, comments, headers, footers), detects candidates via regex + your seeds, lets you review and toggle, then rewrites the XML in place and generates a byte-stable output with a matching SHA-256 hash.
+Rounded caps are I/O (file in, file out). Rectangles are fully automated steps. The diamond is the one place a human decides anything — you review the detected candidates and toggle which ones to redact. **Everything inside the subgraph runs in your browser tab.** No network call, no server round-trip, no background worker. The tool loads the `.docx` as a zip (Word files are zips of XML), walks every text-bearing scope (body, footnotes, endnotes, comments, headers, footers), detects candidates via regex + your seeds, lets you review and toggle, then rewrites the XML in place and generates a byte-stable output with a matching SHA-256 hash.
 
 See [USAGE.md](USAGE.md) for the step-by-step guide.
 
@@ -127,11 +169,12 @@ Each layer is independent. Defeating one still leaves three in place. This is no
 
 These are not bugs — they are things v1 deliberately does not do. Most are planned for v1.x.
 
+- **DOCX only in v1 — PDF support is planned for a future update.** The engine is built around Word's zip-of-XML structure. PDF uses an entirely different content model (coordinate-based text runs in a binary object tree), so it needs its own pipeline. It's on the roadmap, not in v1. For now, convert PDFs to DOCX first (Word, Google Docs, or your PDF tool's export feature) and run the result through this tool.
 - **Level picker is cosmetic in v1.** Only the **Standard** rule set runs. The Conservative and Paranoid options are UI stubs. Planned for v1.1.
 - **No click-to-select in the document preview.** The preview pane is a placeholder explaining that candidate review happens in the right panel. A full WordprocessingML → HTML renderer is a separate module-scale effort planned for v1.1 or v1.2.
-- **View source + Audit log buttons are disabled.** Tooltips explain each. Planned for v1.1 (the self-hash modal will compare the running file against the published release hash).
+- **View source button is disabled.** A tooltip explains why. Planned for v1.1 — the self-hash modal will compute the running file's own SHA-256 and compare it against the hash published on the GitHub Release page, giving you in-app confirmation that the tab you're looking at is the real tool. The sibling **Audit log** button from the early mocks has been **removed from the roadmap** — this tool is designed for incognito, one-shot use where leaving no state is a feature, not a limitation.
 - **Layout degrades to 2-column below 720 px.** The 3-column desktop layout needs ≥1024 px to feel comfortable.
-- **No OCR.** If your DOCX contains images of text (scanned PDFs imported to Word), the text inside those images is not processed. The tool handles text runs, not pixels.
+- **No OCR.** If your DOCX contains images of text (scanned PDFs imported to Word), the text inside those images is not processed. The tool handles text runs, not pixels. OCR is not on the roadmap — browser-based OCR engines are ~10–30 MB, which would break the single-file distribution model. Use a separate OCR tool first (Adobe Acrobat, macOS Preview, 한글, etc.) to extract a text layer, then run the result here.
 - **No embedded object traversal.** OLE-embedded Excel/PowerPoint objects are not walked into. Table cells in native DOCX tables **are** handled.
 - **No SmartArt or WordArt text.** These are special OOXML constructs outside v1's scope.
 - **Tested primarily against bilingual contracts.** The engine is text-based and works on any DOCX, but v1's fixture corpus is contract-focused. Opinions, briefs, memos, and internal notes all work in practice — see [USAGE.md](USAGE.md#non-contract-documents) for guidance.
