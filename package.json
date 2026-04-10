@@ -1,6 +1,6 @@
 {
   "name": "document-redactor",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Lawyer AI Safety Prep — single HTML file, offline DOCX redactor for bilingual Korean+English contracts",
   "license": "Apache-2.0",
