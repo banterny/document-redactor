@@ -147,7 +147,9 @@ The architecture is **Hybrid** as documented in `docs/RULES_GUIDE.md` § 3. Thre
 
 - **`RegexRule`** — 80% of rules in future phases, 100% of Phase 0 rules. Has a `pattern: RegExp` data field, optional `postFilter`, and metadata (category, subcategory, levels, languages, description). The runner handles normalization, exec loop, original-byte recovery, post-filter application.
 
-- **`StructuralParser`** — position-dependent, outputs `DefinedTerm[]` not `Candidate[]`. NOT implemented in Phase 0. Only the TypeScript interface is defined, so Phase 2 can start without another type round.
+- **`StructuralParser`** — position-dependent, outputs `StructuralDefinition[]` not `Candidate[]`. NOT implemented in Phase 0. Only the TypeScript interface is defined, so Phase 1/Phase 2 can start without another type round.
+
+  **Naming note:** the type is `StructuralDefinition`, NOT `DefinedTerm`. A separate concept called `DefinedTerm` already exists at [src/propagation/defined-terms.ts](../src/propagation/defined-terms.ts) for Lane C's D9 role-word classifier (classifying seed-propagated aliases like "the Buyer" / "매수인" / "갑"). The framework type is a STRUCTURAL parser output (from definition sections / recitals / party declarations) — a different concept that needs a different name. Do not collapse them.
 
 - **`Heuristic`** — fuzzy, confidence-scored, context-aware. NOT implemented in Phase 0. Interface only.
 
@@ -220,7 +222,7 @@ Put this content EXACTLY into `src/detection/_framework/types.ts`. Do not add fi
  * Rule framework types — Phase 0.
  *
  * Defines the three rule shapes (RegexRule, StructuralParser, Heuristic) plus
- * supporting types (Candidate, DefinedTerm, Level, Language, HeuristicContext).
+ * supporting types (Candidate, StructuralDefinition, Level, Language, HeuristicContext).
  *
  * See docs/RULES_GUIDE.md § 3 for the rationale behind having three shapes
  * instead of one unified interface.
@@ -283,8 +285,14 @@ export interface RegexRule {
 /**
  * Structured context extracted by a StructuralParser. Used by later phases
  * (heuristics) for D9 defined-term awareness and role classification.
+ *
+ * IMPORTANT naming: this type is `StructuralDefinition`, not `DefinedTerm`.
+ * A separate `DefinedTerm` concept already exists at
+ * `src/propagation/defined-terms.ts` for Lane C's role-word classifier
+ * (matches tokens like "the Buyer" / "매수인" / "갑" from seed propagation).
+ * That is NOT this type. Keep the two distinct.
  */
-export interface DefinedTerm {
+export interface StructuralDefinition {
   /** The label used in the document: "the Buyer", "매수인", "'갑'" */
   readonly label: string;
   /** The entity the label refers to: "ABC Corporation", "사과회사" */
@@ -303,7 +311,7 @@ export interface StructuralParser {
   readonly subcategory: string;
   readonly languages: readonly Language[];
   readonly description: string;
-  parse(normalizedText: string): readonly DefinedTerm[];
+  parse(normalizedText: string): readonly StructuralDefinition[];
 }
 
 /**
@@ -321,12 +329,12 @@ export interface Candidate {
 
 /**
  * Input context passed to Heuristic.detect(). Heuristics consume:
- *  - definedTerms (from structural phase) to skip D9 defined labels
+ *  - structuralDefinitions (from structural phase) to skip D9 defined labels
  *  - priorCandidates (from regex phase) to avoid double-counting
  *  - documentLanguage (from runner) to filter role blacklists
  */
 export interface HeuristicContext {
-  readonly definedTerms: readonly DefinedTerm[];
+  readonly structuralDefinitions: readonly StructuralDefinition[];
   readonly priorCandidates: readonly Candidate[];
   readonly documentLanguage: "ko" | "en" | "mixed";
 }
@@ -1885,7 +1893,7 @@ git add src/detection/_framework/types.ts
 git commit -m "$(cat <<'EOF'
 refactor(detection): add _framework/types.ts — rule framework type definitions
 
-Introduces RegexRule, StructuralParser, Heuristic, Candidate, DefinedTerm,
+Introduces RegexRule, StructuralParser, Heuristic, Candidate, StructuralDefinition,
 HeuristicContext, Level, Language, Category, PostFilter. All three rule shapes
 are defined in this phase but only RegexRule is exercised by Phase 0; the
 other two are forward compatibility for Phase 2 and Phase 4.
@@ -1907,7 +1915,7 @@ import { describe, it, expectTypeOf } from "vitest";
 import type {
   Candidate,
   Category,
-  DefinedTerm,
+  StructuralDefinition,
   Heuristic,
   HeuristicContext,
   Language,
@@ -1992,25 +2000,25 @@ describe("types.ts exports", () => {
     expectTypeOf(c).toMatchTypeOf<Candidate>();
   });
 
-  it("DefinedTerm requires label, referent, source", () => {
-    const dt: DefinedTerm = {
+  it("StructuralDefinition requires label, referent, source", () => {
+    const dt: StructuralDefinition = {
       label: "the Buyer",
       referent: "ABC Corp",
       source: "definition-section",
     };
-    expectTypeOf(dt).toMatchTypeOf<DefinedTerm>();
+    expectTypeOf(dt).toMatchTypeOf<StructuralDefinition>();
   });
 
   it("HeuristicContext has readonly arrays", () => {
     const ctx: HeuristicContext = {
-      definedTerms: [],
+      structuralDefinitions: [],
       priorCandidates: [],
       documentLanguage: "mixed",
     };
     expectTypeOf(ctx).toMatchTypeOf<HeuristicContext>();
   });
 
-  it("StructuralParser.parse returns readonly DefinedTerm[]", () => {
+  it("StructuralParser.parse returns readonly StructuralDefinition[]", () => {
     const parser: StructuralParser = {
       id: "structural.test",
       category: "structural",
@@ -2019,7 +2027,7 @@ describe("types.ts exports", () => {
       description: "test",
       parse: (_text) => [],
     };
-    expectTypeOf(parser.parse).returns.toMatchTypeOf<readonly DefinedTerm[]>();
+    expectTypeOf(parser.parse).returns.toMatchTypeOf<readonly StructuralDefinition[]>();
   });
 
   it("Heuristic.detect returns readonly Candidate[]", () => {
@@ -2952,7 +2960,7 @@ Your work is accepted if and only if ALL of the following are true. Run each che
 3. ✅ `bun run lint` → 0 errors (3 pre-existing warnings in `coverage/*.js` are OK, no new warnings)
 4. ✅ `bun run build` → `dist/document-redactor.html` + `dist/document-redactor.html.sha256` produced, no errors
 5. ✅ `bun run build` run twice produces byte-identical `dist/document-redactor.html.sha256` (determinism)
-6. ✅ `src/detection/_framework/types.ts` exists and exports: `Level`, `Language`, `Category`, `PostFilter`, `RegexRule`, `DefinedTerm`, `StructuralParser`, `Candidate`, `HeuristicContext`, `Heuristic` (10 exports)
+6. ✅ `src/detection/_framework/types.ts` exists and exports: `Level`, `Language`, `Category`, `PostFilter`, `RegexRule`, `StructuralDefinition`, `StructuralParser`, `Candidate`, `HeuristicContext`, `Heuristic` (10 exports)
 7. ✅ `src/detection/_framework/runner.ts` exists and exports `runRegexPhase`
 8. ✅ `src/detection/_framework/language-detect.ts` exists and exports `detectLanguage`
 9. ✅ `src/detection/_framework/registry.ts` exists and exports `ALL_REGEX_RULES` with exactly 8 entries
