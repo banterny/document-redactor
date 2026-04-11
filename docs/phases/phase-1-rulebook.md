@@ -2,15 +2,15 @@
 
 > ⚠️ **PARTIAL DRAFT — DO NOT EXECUTE** ⚠️
 >
-> This brief is **incomplete** as of 2026-04-12 (v4, after session +2 first half).
-> § 0–9 are written (orientation, mission, invariants, architecture, file
+> This brief is **incomplete** as of 2026-04-12 (v5, after session +2 second half).
+> § 0–10 are written (orientation, mission, invariants, architecture, file
 > layout, framework type extensions, runner extensions, detect-all.ts pipeline,
-> and the 10 financial rules). The remaining rule content (§ 10–14 temporal /
+> financial rules, and temporal rules). The remaining rule content (§ 11–14
 > entities / structural / legal / heuristics) and § 15–18 (testing / TDD /
 > verification / acceptance) are **NOT YET AUTHORED**.
 >
 > **Do NOT hand this to Codex for execution in its current state.** Codex would
-> read the file-layout section, fail to find rule specifications in § 10–14,
+> read the file-layout section, fail to find rule specifications in § 11–14,
 > and produce garbage code trying to fill in the gaps.
 >
 > **If you are Claude in a future session:** jump to the `## RESUME POINTER` section
@@ -18,9 +18,9 @@
 >
 > **If you are the user:** this file will be completed across 2–3 more Claude
 > sessions. Decisions are locked (see session log 2026-04-11-v2). The next step is
-> writing § 10 (temporal rules, ~500 lines), then § 11 (entities, ~700 lines),
-> then § 12–14 (structural / legal / heuristics), followed by § 15–18 (testing
-> requirements, TDD sequence, verification, acceptance).
+> writing § 11 (entities, ~700 lines), then § 12 (structural parsers, ~900 lines),
+> then § 13–14 (legal / heuristics), followed by § 15–18 (testing / TDD /
+> verification / acceptance).
 
 ---
 
@@ -2529,9 +2529,627 @@ Before committing the financial rules, verify every item:
 
 ---
 
+## 10. `rules/temporal.ts` — 8 regex rules
+
+Eight temporal detection rules covering Korean and English calendar dates, durations, and label-driven date context. File targets ~200 lines of TypeScript + ~200 lines of tests. Structure mirrors § 9 exactly so Codex can use § 9 as a template when authoring.
+
+### 10.1 Category overview
+
+| # | id | Languages | Levels | What it catches |
+|---|---|---|---|---|
+| 1 | `temporal.date-ko-full` | `["ko"]` | C, S, P | `2024년 3월 15일`, `2024년3월15일`, `2024년 03월 15일` |
+| 2 | `temporal.date-ko-short` | `["ko"]` | S, P | `2024.3.15`, `2024-3-15`, `2024/3/15`, `2024.03.15` |
+| 3 | `temporal.date-ko-range` | `["ko"]` | S, P | `2024년 3월 15일부터 2024년 6월 30일까지`, `2024.3.15 ~ 2024.6.30` |
+| 4 | `temporal.date-iso` | `["universal"]` | C, S, P | Strict ISO 8601: `2024-03-15`, `2024-03-15T14:30:00Z` |
+| 5 | `temporal.date-en` | `["en"]` | S, P | `March 15, 2024`, `15 March 2024`, `Mar. 15, 2024` |
+| 6 | `temporal.duration-ko` | `["ko"]` | S, P | `3년간`, `6개월`, `90일간`, `2주`, `24시간` |
+| 7 | `temporal.duration-en` | `["en"]` | S, P | `3 years`, `6 months`, `90 days`, `2 weeks` |
+| 8 | `temporal.date-context-ko` | `["ko"]` | C, S, P | Label + date: `계약일: 2024.3.15`, `체결일 2024년 3월 15일`, `시행일: 2024-03-15` |
+
+Legend: **C** = conservative, **S** = standard, **P** = paranoid.
+
+### 10.2 Normalization and language-filter assumptions
+
+Same normalization assumptions as § 9.2 apply (fullwidth folded to halfwidth, CJK space → ASCII space, hyphen variants → ASCII hyphen, NFC Hangul assumption). Re-read § 9.2 before writing patterns — do not re-apply these transformations inside the regex.
+
+**Temporal-specific notes:**
+
+- **Hyphen variants matter.** Korean dates are commonly written with en-dashes (`2024–03–15`) or em-dashes. `normalizeForMatching` folds all of these to ASCII `-`, so the regex only needs to match ASCII `-`. Do NOT include `–—‒‑−` in the separator character class.
+- **Fullwidth period and slash.** `2024．3．15` and `2024／3／15` are pre-folded to `2024.3.15` and `2024/3/15`. Regex uses ASCII only.
+- **Korean `년`, `월`, `일` are not normalized.** They pass through as single-codepoint Hangul syllables (assuming NFC input). The regex matches them literally.
+- **Language filter interaction.** The language filter (per § 7 runner) skips rules whose `languages` array excludes the detected document language. For a pure-English document, rules 1–3, 6, 8 (all `["ko"]`) are skipped; rules 4–5, 7 run. For a pure-Korean document, only rules 5, 7 (`["en"]`) are skipped; rule 4 (`["universal"]`) always runs. For a `"mixed"` document, every temporal rule runs. This is the expected behavior and matches RULES_GUIDE § 11.2.
+
+### 10.3 Full file content (`rules/temporal.ts`)
+
+Put this EXACTLY into `src/detection/rules/temporal.ts`:
+
+```typescript
+/**
+ * Temporal category — calendar dates, durations, date-range phrases.
+ *
+ * Eight regex rules covering:
+ *
+ *   1. Korean full date (2024년 3월 15일)
+ *   2. Korean short date (2024.3.15 / 2024-3-15 / 2024/3/15)
+ *   3. Korean date range (2024년 3월 15일부터 2024년 6월 30일까지)
+ *   4. ISO 8601 date with optional time (2024-03-15, 2024-03-15T14:30:00Z)
+ *   5. English date (March 15, 2024 / 15 March 2024)
+ *   6. Korean duration (3년간 / 6개월 / 90일간)
+ *   7. English duration (3 years / 6 months / 90 days)
+ *   8. Label-driven Korean date context (계약일: 2024.3.15)
+ *
+ * Two post-filters validate calendar dates: `validNumericDate` checks
+ * month/day ranges and month-specific day counts (Feb 30 is rejected) for
+ * the numeric and Korean date forms; `validEnglishDate` does the same for
+ * the English month-name form. Duration and range rules are not post-
+ * filtered — duration has no calendar semantics, and range over-matching
+ * is accepted as an acknowledged edge case.
+ *
+ * See:
+ *   - docs/phases/phase-1-rulebook.md § 10 — authoritative rule specs
+ *   - docs/RULES_GUIDE.md § 2.3 — temporal category boundary
+ *   - docs/RULES_GUIDE.md § 7 — ReDoS checklist
+ *
+ * NORMALIZATION: this file assumes `normalizeForMatching` has already folded
+ * fullwidth digits, hyphen variants, and CJK space. See § 10.2 of the
+ * phase-1 brief and src/detection/normalize.ts for the authoritative list.
+ */
+
+import type { PostFilter, RegexRule } from "../_framework/types.js";
+
+/** Month name → numeric mapping for English date validation. */
+const MONTH_NAME_TO_NUM: Readonly<Record<string, number>> = {
+  January: 1,
+  Jan: 1,
+  February: 2,
+  Feb: 2,
+  March: 3,
+  Mar: 3,
+  April: 4,
+  Apr: 4,
+  May: 5,
+  June: 6,
+  Jun: 6,
+  July: 7,
+  Jul: 7,
+  August: 8,
+  Aug: 8,
+  September: 9,
+  Sep: 9,
+  Sept: 9,
+  October: 10,
+  Oct: 10,
+  November: 11,
+  Nov: 11,
+  December: 12,
+  Dec: 12,
+};
+
+/**
+ * Return true if the given (year, month, day) is a real calendar date.
+ * Uses the Date constructor's roll-over behavior to detect invalid days
+ * (e.g., Feb 30 rolls to Mar 2, so `d.getDate() !== 30`).
+ *
+ * Year is bounded to 1900-2100 to reject obvious typos (year 0024, year
+ * 20240) while still allowing historical contract references.
+ */
+function isValidCalendarDate(
+  year: number,
+  month: number,
+  day: number,
+): boolean {
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return false;
+  }
+  if (year < 1900 || year > 2100) return false;
+  if (month < 1 || month > 12) return false;
+  if (day < 1 || day > 31) return false;
+  const d = new Date(year, month - 1, day);
+  return (
+    d.getFullYear() === year &&
+    d.getMonth() === month - 1 &&
+    d.getDate() === day
+  );
+}
+
+/**
+ * Post-filter for numeric and Korean-full date rules. Extracts (year, month,
+ * day) from either `YYYY.MM.DD` / `YYYY-MM-DD` / `YYYY/MM/DD` format or
+ * `YYYY년 MM월 DD일` format, then validates via `isValidCalendarDate`.
+ *
+ * If neither format matches (shouldn't happen given the rule's own regex),
+ * returns false to reject the candidate defensively.
+ */
+const validNumericDate: PostFilter = (normalizedMatch) => {
+  const numeric = normalizedMatch.match(
+    /(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/,
+  );
+  if (numeric) {
+    return isValidCalendarDate(
+      Number(numeric[1]),
+      Number(numeric[2]),
+      Number(numeric[3]),
+    );
+  }
+  const korean = normalizedMatch.match(
+    /(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/,
+  );
+  if (korean) {
+    return isValidCalendarDate(
+      Number(korean[1]),
+      Number(korean[2]),
+      Number(korean[3]),
+    );
+  }
+  return false;
+};
+
+/**
+ * Post-filter for the English date rule. Handles both `Month Day, Year`
+ * and `Day Month Year` forms. Falls back to false for unrecognized shapes.
+ */
+const validEnglishDate: PostFilter = (normalizedMatch) => {
+  // Month Day, Year — e.g., "March 15, 2024" or "Mar. 15 2024"
+  const mdy = normalizedMatch.match(
+    /([A-Z][a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/,
+  );
+  if (mdy) {
+    const month = MONTH_NAME_TO_NUM[mdy[1]!];
+    if (month === undefined) return false;
+    return isValidCalendarDate(Number(mdy[3]), month, Number(mdy[2]));
+  }
+  // Day Month Year — e.g., "15 March 2024" or "15 Mar 2024"
+  const dmy = normalizedMatch.match(
+    /(\d{1,2})\s+([A-Z][a-z]+)\.?\s+(\d{4})/,
+  );
+  if (dmy) {
+    const month = MONTH_NAME_TO_NUM[dmy[2]!];
+    if (month === undefined) return false;
+    return isValidCalendarDate(Number(dmy[3]), month, Number(dmy[1]));
+  }
+  return false;
+};
+
+export const TEMPORAL = [
+  {
+    id: "temporal.date-ko-full",
+    category: "temporal",
+    subcategory: "date-ko-full",
+    pattern:
+      /(?<!\d)(?:19|20)\d{2}년\s*(?:1[0-2]|0?[1-9])월\s*(?:3[01]|[12]\d|0?[1-9])일/g,
+    postFilter: validNumericDate,
+    levels: ["conservative", "standard", "paranoid"],
+    languages: ["ko"],
+    description: "Korean full date with 년/월/일 suffixes (e.g., '2024년 3월 15일')",
+  },
+  {
+    id: "temporal.date-ko-short",
+    category: "temporal",
+    subcategory: "date-ko-short",
+    pattern:
+      /(?<!\d)(?:19|20)\d{2}[.\-/](?:1[0-2]|0?[1-9])[.\-/](?:3[01]|[12]\d|0?[1-9])(?!\d)/g,
+    postFilter: validNumericDate,
+    levels: ["standard", "paranoid"],
+    languages: ["ko"],
+    description:
+      "Korean short date with dot/hyphen/slash separators (e.g., '2024.3.15', '2024-03-15')",
+  },
+  {
+    id: "temporal.date-ko-range",
+    category: "temporal",
+    subcategory: "date-ko-range",
+    pattern:
+      /(?:19|20)\d{2}년\s*(?:1[0-2]|0?[1-9])월\s*(?:3[01]|[12]\d|0?[1-9])일\s*(?:부터|~|-)\s*(?:19|20)\d{2}년\s*(?:1[0-2]|0?[1-9])월\s*(?:3[01]|[12]\d|0?[1-9])일(?:\s*까지)?/g,
+    levels: ["standard", "paranoid"],
+    languages: ["ko"],
+    description:
+      "Korean date range with 부터/~/- separator and optional 까지 suffix",
+  },
+  {
+    id: "temporal.date-iso",
+    category: "temporal",
+    subcategory: "date-iso",
+    pattern:
+      /(?<!\d)(?:19|20)\d{2}-(?:1[0-2]|0[1-9])-(?:3[01]|[12]\d|0[1-9])(?:T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?:Z|[+-](?:[01]\d|2[0-3]):?[0-5]\d)?)?(?!\d)/g,
+    postFilter: validNumericDate,
+    levels: ["conservative", "standard", "paranoid"],
+    languages: ["universal"],
+    description:
+      "ISO 8601 date with zero-padded month/day and optional time component",
+  },
+  {
+    id: "temporal.date-en",
+    category: "temporal",
+    subcategory: "date-en",
+    pattern:
+      /(?<![A-Za-z\d])(?:(?:3[01]|[12]\d|0?[1-9])\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan\.?|Feb\.?|Mar\.?|Apr\.?|Jun\.?|Jul\.?|Aug\.?|Sept?\.?|Oct\.?|Nov\.?|Dec\.?)|(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan\.?|Feb\.?|Mar\.?|Apr\.?|Jun\.?|Jul\.?|Aug\.?|Sept?\.?|Oct\.?|Nov\.?|Dec\.?)\s+(?:3[01]|[12]\d|0?[1-9])(?:st|nd|rd|th)?,?)\s+(?:19|20)\d{2}(?!\d)/g,
+    postFilter: validEnglishDate,
+    levels: ["standard", "paranoid"],
+    languages: ["en"],
+    description:
+      "English date in 'Month Day, Year' or 'Day Month Year' form with month names and abbreviations",
+  },
+  {
+    id: "temporal.duration-ko",
+    category: "temporal",
+    subcategory: "duration-ko",
+    pattern:
+      /(?<!\d)\d+\s*(?:년간|개월|달|주간|주|일간|시간)/g,
+    levels: ["standard", "paranoid"],
+    languages: ["ko"],
+    description:
+      "Korean duration with unambiguous unit suffix (년간/개월/달/주간/주/일간/시간)",
+  },
+  {
+    id: "temporal.duration-en",
+    category: "temporal",
+    subcategory: "duration-en",
+    pattern:
+      /(?<!\d)\d+\s+(?:years?|months?|weeks?|days?|hours?)\b/gi,
+    levels: ["standard", "paranoid"],
+    languages: ["en"],
+    description:
+      "English duration (N years/months/weeks/days/hours)",
+  },
+  {
+    id: "temporal.date-context-ko",
+    category: "temporal",
+    subcategory: "date-context-ko",
+    pattern:
+      /(?<=(?:계약일|체결일|시행일|효력발생일|만료일|종료일|발행일|작성일|기준일)\s*[:：]?\s*)(?:(?:19|20)\d{2}년\s*(?:1[0-2]|0?[1-9])월\s*(?:3[01]|[12]\d|0?[1-9])일|(?:19|20)\d{2}[.\-/](?:1[0-2]|0?[1-9])[.\-/](?:3[01]|[12]\d|0?[1-9]))/g,
+    postFilter: validNumericDate,
+    levels: ["conservative", "standard", "paranoid"],
+    languages: ["ko"],
+    description:
+      "Korean date preceded by a label (계약일/체결일/시행일/...)",
+  },
+] as const satisfies readonly RegexRule[];
+```
+
+### 10.4 Per-rule deep dive
+
+#### 10.4.1 `temporal.date-ko-full`
+
+**Pattern:** `(?<!\d)(?:19|20)\d{2}년\s*(?:1[0-2]|0?[1-9])월\s*(?:3[01]|[12]\d|0?[1-9])일`
+
+**Year bound `19|20`.** The year must start with `19` or `20` — i.e., 1900–2099. This rejects `9999년`, `1000년`, and similar typos. Historical contract references (e.g., Seoul Olympics 1988) still match.
+
+**Month class `(?:1[0-2]|0?[1-9])`.** Matches `1`–`12` with or without zero-padding. Order: `1[0-2]` first (greedy preference for 10/11/12), then `0?[1-9]` for single-digit months.
+
+**Day class `(?:3[01]|[12]\d|0?[1-9])`.** Matches `1`–`31`. Month-specific day validation (April has 30, February has 28/29) is delegated to the `validNumericDate` post-filter.
+
+**Matches:**
+- `"2024년 3월 15일"` → `2024년 3월 15일`
+- `"2024년3월15일"` (no spaces) → `2024년3월15일`
+- `"2024년 03월 15일"` (zero-padded month) → `2024년 03월 15일`
+
+**Variants:**
+- `"2024년  3월  15일"` (multiple spaces)
+- `"2024년 12월 31일"` (end-of-year)
+- `"1988년 9월 17일"` (historical)
+
+**Boundaries:**
+- Start/end of string
+- Adjacent punctuation: `"(2024년 3월 15일)"` → matches the date, leaves parens
+- Korean particle after: `"2024년 3월 15일에"` → matches the date, leaves `에`
+
+**Rejects:**
+- `"2024년 13월 15일"` (month 13) — regex rejects (no `13` in month class)
+- `"2024년 2월 30일"` (Feb 30) — regex matches, post-filter rejects (Feb has 28/29 days)
+- `"9999년 3월 15일"` (year 9999) — regex rejects (year prefix must be `19|20`)
+
+**ReDoS:** benign. No nested quantifiers. Each `\s*` is bounded by a required literal Hangul syllable, preventing runaway backtracking.
+
+#### 10.4.2 `temporal.date-ko-short`
+
+**Pattern:** `(?<!\d)(?:19|20)\d{2}[.\-/](?:1[0-2]|0?[1-9])[.\-/](?:3[01]|[12]\d|0?[1-9])(?!\d)`
+
+**Separator class `[.\-/]`.** Accepts dot, hyphen, or slash. The three separators can be MIXED within a single date (e.g., `2024.3-15` technically matches), which is weird but not harmful — dedup collapses identical strings later.
+
+**Why `(?!\d)` at the end.** Prevents `2024.3.155` from matching as `2024.3.15` with a trailing `5` left over.
+
+**Matches:**
+- `"2024.3.15"` → `2024.3.15`
+- `"2024-3-15"` → `2024-3-15`
+- `"2024/3/15"` → `2024/3/15`
+- `"2024.03.15"` (zero-padded) → `2024.03.15`
+
+**Rule interaction with `date-iso`.** `"2024-03-15"` matches BOTH `date-ko-short` (via `[.\-/]` class) AND `date-iso` (strict form). Both emit candidates with identical `text`. Dedup in `buildAllTargetsFromZip` collapses them. This is intended — two rules both confirming the same match is a feature (higher confidence in downstream analytics), not a bug.
+
+**Rejects:**
+- `"2024.13.15"` (month 13) — regex rejects
+- `"2024.2.30"` (Feb 30) — regex matches, post-filter rejects
+- `"v2024.3.15"` — the `v` before `2` is not a digit (lookbehind passes), so regex matches. Accepted limitation — `v2024.3.15` as a version string is rare in contracts.
+
+**ReDoS:** benign.
+
+#### 10.4.3 `temporal.date-ko-range`
+
+**Pattern:** see § 10.3. Two `date-ko-full`-style date patterns joined by `\s*(?:부터|~|-)\s*` with an optional `\s*까지` suffix.
+
+**Matches:**
+- `"2024년 3월 15일부터 2024년 6월 30일까지"` → full phrase
+- `"2024년 3월 15일 ~ 2024년 6월 30일"` → with `~` separator
+- `"2024년 3월 15일 - 2024년 6월 30일"` → with hyphen separator
+- `"2024년 3월 15일부터 2024년 6월 30일"` → without `까지`
+
+**Rejects:**
+- `"2024년 3월 15일"` alone (no range) — no match
+- `"2024년 3월 15일부터"` without end date — no match
+- `"2024.3.15 ~ 2024.6.30"` — the range rule only matches the full `년/월/일` form. The short form range is NOT supported in Phase 1 (acknowledged limitation). Users who need it get two separate `date-ko-short` matches from the two dates, which is equally useful for redaction.
+
+**No post-filter.** Range matches are accepted verbatim. Invalid date components inside a range (e.g., `2024년 2월 30일부터 ...`) match but are not rejected; this is a rare edge case and the harm is a false positive redaction of an invalid date string, which is harmless.
+
+**Level rationale:** Standard + Paranoid. Not Conservative because the pattern is long and the combined surface allows unusual forms to slip through occasionally.
+
+**ReDoS:** benign. The two date sub-patterns are concatenated with a required separator, so there is no overlap between them.
+
+#### 10.4.4 `temporal.date-iso`
+
+**Pattern:** `(?<!\d)(?:19|20)\d{2}-(?:1[0-2]|0[1-9])-(?:3[01]|[12]\d|0[1-9])(?:T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?:Z|[+-](?:[01]\d|2[0-3]):?[0-5]\d)?)?(?!\d)`
+
+**Strict zero-padding.** Month and day classes require `0[1-9]`, not `0?[1-9]`. `2024-3-15` does NOT match this rule (it matches `date-ko-short` instead). ISO 8601 mandates zero-padding; respecting that is what makes this rule the "conservative" one.
+
+**Optional time component.** `T` followed by `HH:MM`, optional `:SS`, and optional timezone (`Z` or `±HH:MM` or `±HHMM`). All RFC 3339 datetime forms.
+
+**Matches:**
+- `"2024-03-15"` (date only)
+- `"2024-03-15T14:30:00Z"` (full UTC)
+- `"2024-03-15T14:30:00+09:00"` (KST offset)
+- `"2024-03-15T14:30"` (date + HH:MM only)
+
+**Rejects:**
+- `"2024-3-15"` (not zero-padded) — no match (caught by `date-ko-short` instead)
+- `"2024-03-15T25:00:00Z"` (hour 25) — regex rejects (hour class is `[01]\d|2[0-3]`)
+- `"2024-02-30"` — regex matches, post-filter rejects
+
+**Language rationale:** `"universal"`. ISO 8601 is language-neutral and appears in technical documents of any language.
+
+**Level rationale:** Conservative. The strict form is near-zero false positive — if a string looks like `2024-03-15`, it IS an ISO date.
+
+**ReDoS:** benign. The time component has a fixed maximum length and no nested quantifiers.
+
+#### 10.4.5 `temporal.date-en`
+
+**Pattern:** see § 10.3. Two branches combined with alternation: `Day Month` and `Month Day,?`, both followed by a required 4-digit year.
+
+**Month name list:** full names and common abbreviations (`Jan` through `Dec`, with optional period). Note that `"May"` appears in the full-name list only — `"May."` with period is unusual and accepted, but `"May"` is ambiguous with the modal verb. The post-filter does not resolve this ambiguity; accept occasional false positives.
+
+**Ordinal suffix** `(?:st|nd|rd|th)?` — optional, matches `"15th"`, `"1st"`, etc. Note: after the ordinal, a comma is optional (`"March 15, 2024"` and `"March 15 2024"` both match).
+
+**Matches:**
+- `"March 15, 2024"` (MDY)
+- `"March 15 2024"` (MDY no comma)
+- `"Mar. 15, 2024"` (MDY abbreviated)
+- `"15 March 2024"` (DMY)
+- `"15 Mar 2024"` (DMY abbreviated)
+- `"March 15th, 2024"` (with ordinal)
+- `"September 3, 2024"` — `Sept` vs `Sep` both acceptable
+
+**Rejects:**
+- `"March 2024"` (no day) — no match
+- `"March 15"` (no year) — no match
+- `"March 32, 2024"` — regex rejects (day class)
+- `"February 30, 2024"` — regex matches, post-filter rejects
+
+**Language rationale:** `"en"`. English-only rule. Running on Korean text would be noise.
+
+**Level rationale:** Standard + Paranoid. The `"May"` ambiguity prevents conservative tier.
+
+**ReDoS:** benign. The outer alternation has disjoint prefixes (digit vs letter), so backtracking between branches is bounded.
+
+#### 10.4.6 `temporal.duration-ko`
+
+**Pattern:** `(?<!\d)\d+\s*(?:년간|개월|달|주간|주|일간|시간)`
+
+**Why `년간` not `년`.** `년` alone is ambiguous with the year suffix in `date-ko-full` (`2024년`). The unambiguous duration form requires `년간` ("for N years"). Contracts that write `3년` without `간` are treated as ambiguous and NOT matched by this rule — user's responsibility to write `3년간` if they want detection. Acknowledged limitation.
+
+**Why `일간` not `일`.** Same reason — `일` alone is the day suffix in `date-ko-full`.
+
+**Unit list:** `년간`, `개월`, `달`, `주간`, `주`, `일간`, `시간`. The alternation puts longer forms first where they would otherwise shadow (`년간` before any `년`-like form; no standalone `년` in this rule).
+
+**Matches:**
+- `"3년간"` → `3년간`
+- `"6개월"` → `6개월`
+- `"90일간"` → `90일간`
+- `"2주"` → `2주`
+- `"24시간"` → `24시간`
+- `"3 년간"` (space) → `3 년간`
+
+**Rejects:**
+- `"2024년"` (date year) — no `간` suffix, not in unit list, no match
+- `"3일"` (date day) — no `간`, no match
+- `"년간"` alone (no digit) — no match
+
+**ReDoS:** benign.
+
+#### 10.4.7 `temporal.duration-en`
+
+**Pattern:** `(?<!\d)\d+\s+(?:years?|months?|weeks?|days?|hours?)\b`
+
+**Case insensitive (`/gi`).** The pattern uses `i` flag because English durations in contracts appear in mixed case (`"3 Years"`, `"6 MONTHS"`). The runner's invariant is that `g` must be present; `i` is allowed alongside.
+
+**`\b` usage.** This rule is `languages: ["en"]`, so it runs only on English text. RULES_GUIDE § 12.1 warns about `\b` in CJK contexts — English rules are safe.
+
+**Required `\s+` between number and unit.** `"3years"` (no space) does not match. Contracts almost always separate the number and unit with a space; `"3years"` concatenated is a compilation error or a typo.
+
+**Matches:**
+- `"3 years"` → `3 years`
+- `"1 year"` (singular) → `1 year`
+- `"6 months"` → `6 months`
+- `"90 days"` → `90 days`
+- `"2 weeks"` → `2 weeks`
+- `"24 hours"` → `24 hours`
+- `"3 Years"` (capitalized) → matches via `/i`
+
+**Rejects:**
+- `"3years"` (no space) — no match
+- `"years"` alone — no match
+- `"3 year old"` — matches `3 year` (the `old` is left over), which is a mild false positive acceptable for paranoid tier
+
+**ReDoS:** benign.
+
+#### 10.4.8 `temporal.date-context-ko`
+
+**Pattern:** see § 10.3. Variable-length lookbehind for Korean date labels (`계약일`, `체결일`, `시행일`, `효력발생일`, `만료일`, `종료일`, `발행일`, `작성일`, `기준일`) followed by either the Korean-full or Korean-short date form.
+
+**Why two date forms in one rule.** The label-driven context is high-signal — if a label is present, the date format could be either form and we want to catch both. Splitting into two rules (`date-context-ko-full`, `date-context-ko-short`) would duplicate the label list.
+
+**Variable-length lookbehind.** ES2018+. Same caveat as `financial.amount-context-ko` in § 9.4.10: supported in Node 18+, bounded performance (longest label is `효력발생일` at 5 characters).
+
+**Matches:**
+- `"계약일: 2024.3.15"` → `2024.3.15`
+- `"체결일 2024년 3월 15일"` → `2024년 3월 15일`
+- `"시행일: 2024-03-15"` → `2024-03-15`
+- `"만료일: 2024.12.31"` → `2024.12.31`
+
+**Rejects:**
+- `"계약일"` alone (no date) — no match
+- `"2024.3.15"` alone (no label) — no match (caught by `date-ko-short` separately)
+- `"시간 2024.3.15"` (label `시간` not in list) — no match
+
+**Level rationale:** Conservative. Label + valid date is the most reliable signal in the temporal category.
+
+**Interaction with other temporal rules.** Context-labeled dates ALSO match `date-ko-full`, `date-ko-short`, or `date-iso` depending on form. Dedup collapses identical text. Higher-tier analytics downstream can see that a candidate fired on multiple rules as a confidence signal.
+
+**ReDoS:** benign.
+
+### 10.5 Test file specification (`rules/temporal.test.ts`)
+
+Create `src/detection/rules/temporal.test.ts`. Per RULES_GUIDE § 8.1, minimum per-rule test set is 13 cases. Eight rules × 13 tests = **104 tests minimum**. Target ~115 tests to cover calendar validation edge cases (leap years, month-end days, timezone offsets).
+
+**Organization:** mirror § 9.5 exactly. One `describe("TEMPORAL registry", …)` block with sanity tests (exports 8 rules, every id starts with `temporal.`, every pattern has the `g` flag, every rule has a non-empty description), then one `describe` per rule.
+
+**Shared helpers (copy from § 9.5):**
+
+```typescript
+import { describe, expect, it } from "vitest";
+
+import { runRegexPhase } from "../_framework/runner.js";
+import type { RegexRule } from "../_framework/types.js";
+
+import { TEMPORAL } from "./temporal.js";
+
+function findRule(subcategory: string): RegexRule {
+  const rule = TEMPORAL.find((r) => r.subcategory === subcategory);
+  if (!rule) throw new Error(`Rule not found: ${subcategory}`);
+  return rule;
+}
+
+function matchOne(subcategory: string, text: string): string[] {
+  const rule = findRule(subcategory);
+  return runRegexPhase(text, "paranoid", [rule]).map((c) => c.text);
+}
+```
+
+**Calendar validation tests (add to each date-rule block):**
+
+```typescript
+describe("temporal.date-ko-full", () => {
+  // ... 10 other tests ...
+
+  it("rejects Feb 30 via post-filter", () => {
+    expect(matchOne("date-ko-full", "2024년 2월 30일")).toEqual([]);
+  });
+
+  it("accepts Feb 29 on a leap year", () => {
+    expect(matchOne("date-ko-full", "2024년 2월 29일")).toEqual([
+      "2024년 2월 29일",
+    ]);
+  });
+
+  it("rejects Feb 29 on a non-leap year", () => {
+    expect(matchOne("date-ko-full", "2023년 2월 29일")).toEqual([]);
+  });
+
+  it("rejects April 31", () => {
+    expect(matchOne("date-ko-full", "2024년 4월 31일")).toEqual([]);
+  });
+});
+```
+
+Similar calendar-validity tests go in `date-ko-short`, `date-iso`, `date-en`, and `date-context-ko` describe blocks (each gets ~4 calendar tests in addition to the 13-minimum base set).
+
+**ReDoS adversarial test per rule.** One per rule against a 10KB pathological input. Example for `date-ko-range` (the longest and most backtrack-prone pattern):
+
+```typescript
+it("is ReDoS-safe on long range-like input", () => {
+  const input = "2024년 3월 15일부터 ".repeat(500) + "2024년 6월 30일까지";
+  const start = Date.now();
+  const matches = matchOne("date-ko-range", input);
+  expect(Date.now() - start).toBeLessThan(100);
+  void matches;
+});
+```
+
+**Quality rubric:** every rule's test block must earn ★★★ per RULES_GUIDE § 8.3 — 3 positive, 3 variants, 3 rejects, minimum.
+
+### 10.6 Registry integration
+
+Extend `src/detection/_framework/registry.ts` to include TEMPORAL rules. The diff builds on the § 9 state:
+
+```typescript
+// Before (§ 9 state):
+import { FINANCIAL } from "../rules/financial.js";
+import { IDENTIFIERS } from "../rules/identifiers.js";
+
+export const ALL_REGEX_RULES: readonly RegexRule[] = [
+  ...IDENTIFIERS,
+  ...FINANCIAL,
+  // Phase 1 follow-up commits append:
+  //   ...TEMPORAL  (§ 10)
+  //   ...ENTITIES  (§ 11)
+  //   ...LEGAL     (§ 13)
+] as const;
+
+// After (§ 10 commit):
+import { FINANCIAL } from "../rules/financial.js";
+import { IDENTIFIERS } from "../rules/identifiers.js";
+import { TEMPORAL } from "../rules/temporal.js";
+
+export const ALL_REGEX_RULES: readonly RegexRule[] = [
+  ...IDENTIFIERS,
+  ...FINANCIAL,
+  ...TEMPORAL,
+  // Phase 1 follow-up commits append:
+  //   ...ENTITIES  (§ 11)
+  //   ...LEGAL     (§ 13)
+] as const;
+```
+
+Registry verification at module load catches any malformed rule. Same fail-fast semantics as § 9.6.
+
+### 10.7 Acceptance checklist for § 10
+
+- [ ] `src/detection/rules/temporal.ts` exists and exports `TEMPORAL: readonly RegexRule[]`
+- [ ] `TEMPORAL.length === 8`
+- [ ] Every rule's id starts with `"temporal."`
+- [ ] Every rule has `category: "temporal"`
+- [ ] Every rule's pattern has the `g` flag (rule 7 also has `i`)
+- [ ] Five rules have `validNumericDate` or `validEnglishDate` post-filter: `date-ko-full`, `date-ko-short`, `date-iso`, `date-en`, `date-context-ko`
+- [ ] `isValidCalendarDate` rejects Feb 30, April 31, June 31, Sept 31, Nov 31
+- [ ] `isValidCalendarDate` accepts Feb 29 in leap years (2024, 2020, 2000)
+- [ ] `isValidCalendarDate` rejects Feb 29 in non-leap years (2023, 2021, 1900)
+- [ ] `isValidCalendarDate` rejects years outside 1900–2100
+- [ ] `MONTH_NAME_TO_NUM` has 12 months plus 10 abbreviations (Jan/Feb/Mar/Apr/Jun/Jul/Aug/Sep/Sept/Oct/Nov/Dec — "May" has no abbreviation)
+- [ ] `rules/temporal.test.ts` has ≥ 104 tests, all passing
+- [ ] Every describe block earns ★★★ on the quality rubric
+- [ ] Registry update: `ALL_REGEX_RULES` includes `...TEMPORAL` immediately after `...FINANCIAL`
+- [ ] Registry verification passes at module load
+- [ ] `bun run test src/detection/detect-pii.characterization.test.ts` still passes byte-for-byte
+- [ ] `bun run test src/detection/detect-pii.integration.test.ts` still passes
+- [ ] `bun run test` overall test count increases by ≥ 104 (temporal tests) + 4 (registry sanity tests) = ≥ 108 in this commit
+- [ ] ReDoS guard fuzz passes for all 8 temporal rules
+- [ ] No new npm dependencies
+- [ ] No edits to any Phase 0 file other than `registry.ts`
+- [ ] Rule 3 (`date-ko-range`) has NO post-filter (acknowledged limitation documented in § 10.4.3)
+- [ ] Rule 6 (`duration-ko`) and Rule 7 (`duration-en`) have NO post-filter (no calendar semantics to validate)
+
+---
+
 ## RESUME POINTER (for Claude in the next session)
 
-**Status as of 2026-04-12 v4 (session +2 first half):** § 0–9 written. § 10–18 pending.
+**Status as of 2026-04-12 v5 (session +2 second half):** § 0–10 written. § 11–18 pending.
 
 ### What is already written (do NOT rewrite)
 
@@ -2545,10 +3163,11 @@ Before committing the financial rules, verify every item:
 - **§ 7** — Runner extensions: top-of-file JSDoc with ASCII diagram (authoritative copy of § 4.1), exact TypeScript for `shouldRunForLanguage` helper, `PhaseOptions` interface, `runRegexPhase` extended signature with private `runRegexPhaseOnMap` helper (Phase 0 body preserved), `runStructuralPhase` + private OnMap helper, `runHeuristicPhase` + private OnMap helper, `RunAllResult` / `RunAllOptions` / `runAllPhases` orchestrator, `registry.ts` diff to add `ALL_STRUCTURAL_PARSERS` + `ALL_HEURISTICS`, empty-array scaffolding for `rules/structural/index.ts` + `rules/heuristics/index.ts`, complete 44-test specification for `runner.test.ts` additions (groups A–E), 14-item acceptance checklist
 - **§ 8** — `detect-all.ts` pipeline: public surface (8 exports), complete file content (~200 lines of TypeScript with full JSDoc), `engine.ts` `Analysis` shape extension contract with `NonPiiCandidate` interface, migration rules for `aggregatePii` → `aggregateAll` with ruleId-prefix partitioning, one new `engine.test.ts` test, 50-test specification for `detect-all.test.ts` (groups 1–4), 10-test specification for `detect-all.integration.test.ts`, 15-item acceptance checklist
 - **§ 9** — `rules/financial.ts`: 10 regex rules (won-amount, won-unit, won-formal, usd-symbol, usd-code, foreign-symbol, foreign-code, percentage, fraction-ko, amount-context-ko); normalization assumption guide; complete file content with two post-filter helpers (wonAmountInRange, percentageInRange); per-rule deep dive for each of the 10 rules covering matches/variants/boundaries/rejects/ReDoS/level-rationale/known-false-positives; 130-test minimum plan with ★★★ quality rubric; `registry.ts` diff; 18-item acceptance checklist
+- **§ 10** — `rules/temporal.ts`: 8 regex rules (date-ko-full, date-ko-short, date-ko-range, date-iso, date-en, duration-ko, duration-en, date-context-ko); `isValidCalendarDate` helper with Date constructor roll-over detection for leap years and month-specific day counts; `validNumericDate` + `validEnglishDate` post-filters with `MONTH_NAME_TO_NUM` table; per-rule deep dive for each of the 8 rules; 104-test minimum plan with calendar-validity tests (Feb 30, Feb 29 leap/non-leap, April 31); `registry.ts` diff; 21-item acceptance checklist
 
 ### What is pending (write in this order, across future sessions)
 
-Each section estimate is rough. Total pending: ~3350 lines (§ 6–9 complete, approximately 2150 lines added across sessions +1 and +2).
+Each section estimate is rough. Total pending: ~2800 lines (§ 6–10 complete, approximately 2700 lines added across sessions +1 and +2).
 
 | § | Content | Est. lines | Order |
 |---|---|---:|---:|
@@ -2556,6 +3175,7 @@ Each section estimate is rough. Total pending: ~3350 lines (§ 6–9 complete, a
 | ~~7~~ | ~~Runner extensions — `runStructuralPhase`, `runHeuristicPhase`, `runAllPhases`, optional `{ language }` param~~ — **DONE session +1** | ~500 | ✓ |
 | ~~8~~ | ~~`detect-all.ts` — `detectAll`, `detectAllInZip`, `buildAllTargetsFromZip`, Analysis shape extension~~ — **DONE session +1** | ~400 | ✓ |
 | ~~9~~ | ~~`rules/financial.ts` — 10 regex rules (KRW × 3, USD × 2, foreign × 2, percentage, fraction, context scanner)~~ — **DONE session +2** | ~700 | ✓ |
+| ~~10~~ | ~~`rules/temporal.ts` — 8 regex rules (Korean full/short/range dates, ISO, English date, Korean/English duration, label-driven date context)~~ — **DONE session +2** | ~550 | ✓ |
 | 10 | `rules/temporal.ts` — 8 regex rules. Korean date (2024년 3월 15일, 2024.3.15), Korean short date, Korean date range, ISO date, English date, Korean duration (3년간, 6개월, 90일), English duration, temporal context scanner. | ~500 | Session +2 |
 | 11 | `rules/entities.ts` — 12 regex rules. Korean corporate suffix (주식회사 X / X 주식회사 / (주)X), Korean legal forms (유한회사, 합자회사, 사단법인), Korean title+name (대표이사 김철수, 이사 박영희), English corporate suffix (Corp/Inc/LLC/Ltd/Co), English legal forms (GmbH/S.A./NV/PLC/Pty), English title+name (Mr./Dr./CEO + Name), Korean honorifics, identity context scanner. | ~700 | Session +2 |
 | 12 | `rules/structural/` — 5 parsers. Each parser has its own .ts file with StructuralParser implementation + top-of-file JSDoc with rationale. definition-section (Korean + English), signature-block (By:, 이름:, 대표이사), party-declaration (first-para scan), recitals (WHEREAS, 전문), header-block (title, execution date, document number). Plus `index.ts` re-exporting `ALL_STRUCTURAL_PARSERS`. | ~900 | Session +3 |
@@ -2611,19 +3231,19 @@ Phase 1 brief does NOT address UI. It only ensures `engine.ts` adds `nonPiiCandi
 
 ### Next session startup checklist
 
-1. Open this file and confirm the "PARTIAL DRAFT" warning is still at the top — it should now say "§ 0–9 written".
+1. Open this file and confirm the "PARTIAL DRAFT" warning is still at the top — it should now say "§ 0–10 written".
 2. Read `../document-redactor-private-notes/session-log-2026-04-11-v2.md` for the full review context.
-3. Read the 4 external feedback files in repo root (`ChatGPT 5.4 Pro Feedback_1.md`, `_2.md`, `Codex Feedback.md`) — these are the quality bar for rule authoring, especially for § 10–14 per-category rule drafting.
-4. Verify `git log --oneline -6` shows the session-+1 and session-+2 commits adding § 6–9 after `e41d842 docs(phases): start phase-1 rulebook brief §0-5 (PARTIAL DRAFT)`.
+3. Read the 4 external feedback files in repo root (`ChatGPT 5.4 Pro Feedback_1.md`, `_2.md`, `Codex Feedback.md`) — these are the quality bar for rule authoring, especially for § 11–14 per-category rule drafting.
+4. Verify `git log --oneline -7` shows the session-+1 and session-+2 commits adding § 6–10 after `e41d842 docs(phases): start phase-1 rulebook brief §0-5 (PARTIAL DRAFT)`.
 5. Verify `bun run test` still shows 422 passing (Phase 0 has not been executed by Codex yet — these are still the v1.0 legacy tests).
-6. Start writing § 10 (`rules/temporal.ts` — 8 regex rules, ~500 lines) → § 11 (entities, ~700) → § 12 (structural parsers, ~900). Model § 10–11 on § 9's structure (overview table, normalization notes, full file content, per-rule deep dive, test spec, registry diff, acceptance checklist).
-7. After each section: `wc -l docs/phases/phase-1-rulebook.md`, commit with a message like `docs(phases): phase-1 brief § 10 temporal rules (partial)`.
+6. Start writing § 11 (`rules/entities.ts` — 12 regex rules, ~700 lines) → § 12 (structural parsers, ~900) → § 13 (legal, ~400) → § 14 (heuristics + role blacklists, ~700). Model every section on § 9 / § 10 structure (overview table, normalization notes, full file content, per-rule deep dive, test spec, registry diff, acceptance checklist). Structural parsers and heuristics have slightly different shapes — see RULES_GUIDE § 5 (parser writeup) and § 6 (heuristic writeup) before starting § 12 and § 14.
+7. After each section: `wc -l docs/phases/phase-1-rulebook.md`, commit with a message like `docs(phases): phase-1 brief § 11 entities rules (partial)`.
 8. Continue across sessions until every section is written, then remove the "PARTIAL DRAFT" warning at the top as the final commit of the brief-authoring stream.
 
 ### Do NOT in future sessions
 
 - Do NOT re-run plan-eng-review on this brief. The review is complete.
-- Do NOT rewrite § 0–9. They are locked. § 6–8 specify exact TypeScript for the framework extension surface — do not "improve" the signatures, rename helpers, or refactor option shapes. § 9 specifies exact regex sources for the 10 financial rules — do not "tune" them without ReDoS re-audit and a review re-opener. Any change of heart about any of these is a review re-opener.
+- Do NOT rewrite § 0–10. They are locked. § 6–8 specify exact TypeScript for the framework extension surface. § 9 specifies exact regex sources for the 10 financial rules. § 10 specifies exact regex sources for the 8 temporal rules plus the `isValidCalendarDate` / `validNumericDate` / `validEnglishDate` post-filters. Do not "improve", "tune", rename, or refactor any of these without a ReDoS re-audit and a plan-eng-review re-opener.
 - Do NOT hand the brief to Codex until the "PARTIAL DRAFT" warning is removed.
 - Do NOT commit Phase 1 content changes to `src/` in the same session as brief authoring. This is a doc-only stream until the brief is complete.
 - Do NOT modify the Phase 0 brief again after commit 187b7f8. It is locked for Codex execution.
