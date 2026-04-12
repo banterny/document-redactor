@@ -1,22 +1,15 @@
 # Phase 1 — Comprehensive rulebook (Codex delegation brief)
 
-> ⚠️ **PARTIAL DRAFT — DO NOT EXECUTE** ⚠️
+> ✅ **COMPLETE — READY FOR CODEX EXECUTION** ✅
 >
-> This brief is **incomplete** as of 2026-04-12 (v8, after session +4). § 0–14
-> are written — ALL rule/parser/heuristic specifications are complete (46 total
-> detection items across 6 categories). Only § 15–18 remain (testing summary,
-> TDD sequence, verification commands, gotchas/acceptance/handback).
+> This brief was authored across sessions +1 through +5 (2026-04-11 to 2026-04-12).
+> All 18 sections (§ 0–18) are written. Decisions were locked during plan-eng-review
+> (session-log-2026-04-11-v2). The brief specifies 46 new detection items across 6
+> categories, a 3-phase runner pipeline, a parallel `detect-all.ts` API, an engine
+> migration, 15 TDD steps, 17 verification commands, and 30 acceptance criteria.
 >
-> **Do NOT hand this to Codex for execution in its current state.** § 15–18
-> provide the testing requirements, the 18-step TDD sequence, and the
-> acceptance criteria — without them Codex cannot verify its own work.
->
-> **If you are Claude in a future session:** jump to the `## RESUME POINTER` section
-> at the very bottom of this file. It tells you exactly where to pick up writing.
->
-> **If you are the user:** this file will be completed in **ONE more Claude
-> session**. The remaining ~1450 lines (§ 15–18) are meta/operational sections
-> that follow existing patterns from Phase 0's brief.
+> **Hand this to Codex for execution.** Start at § 0 and execute the TDD sequence
+> in § 16 step by step.
 
 ---
 
@@ -5497,7 +5490,619 @@ After the § 14 commit, the `_HEURISTICS` import resolves to the populated array
 
 ---
 
-## RESUME POINTER (for Claude in the next session)
+## 15. Testing requirements (summary)
+
+### Minimum new test counts (Phase 1)
+
+| File | Min. tests | Notes |
+|---|---:|---|
+| `_framework/types.test.ts` (§ 6.3) | 3 | HeuristicContext type guard, Language exhaustiveness, Candidate JSON round-trip |
+| `_framework/runner.test.ts` (§ 7.11) | 44 | 5 groups: language filter (12), structural phase (10), heuristic phase (12), runAllPhases integration (9), perf smoke (1) |
+| `rules/financial.test.ts` (§ 9.5) | 130 | 10 rules × 13 tests (3 positive, 3 variant, 3 boundary, 3 reject, 1 ReDoS) |
+| `rules/temporal.test.ts` (§ 10.5) | 104 | 8 rules × 13 tests + calendar-validity extras (Feb 29/30, Apr 31) |
+| `rules/entities.test.ts` (§ 11.5) | 156 | 12 rules × 13 tests + alternation-order regressions + false-positive contract tests |
+| `rules/legal.test.ts` (§ 13.5) | 78 | 6 rules × 13 tests |
+| `rules/structural/*.test.ts` (§ 12.10) | 65 | 5 parsers × 13 tests (incl. position-dependency + source-mapping regression) |
+| `rules/heuristics/*.test.ts` (§ 14.6) | 60 | 4 heuristics × 15 tests (13 base + 2 D9/prior-candidate required behaviors) |
+| `rules/role-blacklist-*.test.ts` (§ 14.3) | 10 | 2 blacklists × 5 tests (count, anchors, no-empty, type, language) |
+| `_framework/redos-guard.test.ts` extensions | ~46 | 44 regex rules + 5 parsers + 4 heuristics at their respective budgets (50ms / 100ms / 100ms) |
+| `detect-all.test.ts` (§ 8.6) | 50 | 4 groups: detectAll (20), detectAllInZip (15), buildAllTargetsFromZip (10), Phase 0 parity (5) |
+| `detect-all.integration.test.ts` (§ 8.7) | 10 | Worst-case fixture: candidate count, scope coverage, category presence, perf, dedup |
+| `engine.test.ts` (§ 8.5) | 1 | `analyzeZip` populates `nonPiiCandidates` on the worst-case fixture |
+| **Total new tests** | **~757** | Expected total: ~559 Phase 0 + ~757 Phase 1 = **~1316 passing** |
+
+The 757 total is higher than the § 1 mission statement's estimate of 475–550 because individual per-rule specs expanded during authoring. This is not a problem — more tests is better. The minimum bar remains 475+; the actual count reflects the authoring reality.
+
+### Phase 0 tests must still pass
+
+All 559 Phase 0 tests (422 v1.0 legacy + 137 Phase 0 additions) must still pass after Phase 1. `bun run test` at the end of Phase 1 should show ~1316 passing, 0 failing. If ANY Phase 0 test breaks, Phase 1 has regressed. Fix the regression, NOT the Phase 0 test.
+
+**In particular:** `detect-pii.characterization.test.ts` (T1–T18) is the Phase 0 ship gate. It must pass byte-for-byte after Phase 1. The new `detect-all.ts` pipeline runs alongside, NOT instead of, the legacy `detect-pii.ts` shim. The only file from Phase 0 that Phase 1 MODIFIES is `engine.ts` (step 15), and that modification is additive (new `nonPiiCandidates` field), not a replacement of `piiCandidates`.
+
+### Test quality target
+
+Per `docs/RULES_GUIDE.md` § 8.3:
+
+- **★★★** — canonical + variants + edge cases + error paths + regression — REQUIRED for every test file
+- ★★ — canonical + at least one edge case — not sufficient
+- ★ — smoke test only — not sufficient
+
+**Every new test file must be ★★★.** If you find yourself writing ★★ tests to save time, STOP and add the edge cases. The cost of a false positive that ships is a leaked real name in a redacted contract — a privacy violation. Over-testing is cheap; under-testing is expensive.
+
+### Coverage target
+
+`src/detection/**` must maintain ≥98% statement coverage. New rule files (§ 9–14) should each individually be at ≥95% coverage. Run `bun run test --coverage` as a final check.
+
+---
+
+## 16. TDD sequence (15 steps, execute IN ORDER)
+
+Execute these steps in exact order. Each step produces one or more git commits. Do NOT skip steps, reorder steps, or merge non-adjacent steps. The order builds from the inside out: framework → regex rules → structural parsers → heuristics → detect-all → engine migration.
+
+### Step 1 — Baseline verification (no commit)
+
+```bash
+cd "/Users/kpsfamily/코딩 프로젝트/document-redactor"
+bun run test 2>&1 | tail -5
+# Expected: 559 passing (422 v1.0 legacy + 137 Phase 0)
+bun run typecheck 2>&1 | tail -3
+# Expected: 0 errors
+```
+
+If the baseline is NOT 559 passing, STOP — Phase 0 may not have merged. Check `git log --oneline -5` and verify the Phase 0 handback commit is present.
+
+### Step 2 — Framework extension (1 commit)
+
+**What to do:**
+1. Append 3 new tests to `_framework/types.test.ts` (§ 6.3)
+2. Extend `_framework/runner.ts` with the full content from § 7.1–§ 7.8 (replacing the Phase 0 file content)
+3. Extend `_framework/registry.ts` with `ALL_STRUCTURAL_PARSERS` + `ALL_HEURISTICS` exports and the FINANCIAL/TEMPORAL/ENTITIES/LEGAL import placeholders (§ 7.9)
+4. Create `rules/structural/index.ts` and `rules/heuristics/index.ts` with empty-array scaffolding (§ 7.9)
+5. Write 44 new tests in `_framework/runner.test.ts` (§ 7.11)
+6. Create directories: `mkdir -p src/detection/rules/structural src/detection/rules/heuristics`
+
+**Verify:**
+```bash
+bun run test src/detection/_framework/ 2>&1 | tail -5
+# All framework tests pass (Phase 0 original + Phase 1 extensions)
+bun run typecheck 2>&1 | tail -3
+# 0 errors
+```
+
+**Commit:**
+```bash
+git add src/detection/_framework/ src/detection/rules/structural/index.ts src/detection/rules/heuristics/index.ts
+git commit -m "$(cat <<'EOF'
+feat(detection/framework): extend runner with 3-phase pipeline and language filter
+
+Add runStructuralPhase, runHeuristicPhase, runAllPhases to the runner.
+Extend runRegexPhase with optional language filter (backward-compat:
+3-arg form preserves Phase 0 semantics). Add shouldRunForLanguage
+helper per RULES_GUIDE § 11.2. Add RunAllResult and RunAllOptions
+interfaces. ASCII pipeline diagram in top-of-file JSDoc.
+
+Extend registry with ALL_STRUCTURAL_PARSERS and ALL_HEURISTICS
+(initially empty arrays, populated in later steps).
+
+44 new runner tests, 3 new type-level assertions.
+
+Co-Authored-By: Codex <noreply@openai.com>
+EOF
+)"
+```
+
+### Step 3 — Financial rules (1 commit)
+
+**What to do:**
+1. Create `rules/financial.ts` with all 10 rules + 2 post-filters (§ 9.3)
+2. Create `rules/financial.test.ts` with ≥ 130 tests (§ 9.5)
+3. Update `_framework/registry.ts` to add `...FINANCIAL` to `ALL_REGEX_RULES` (§ 9.6)
+
+**Verify:**
+```bash
+bun run test src/detection/rules/financial.test.ts 2>&1 | tail -5
+bun run test src/detection/detect-pii.characterization.test.ts 2>&1 | tail -5
+# Both pass
+```
+
+**Commit:**
+```bash
+git add src/detection/rules/financial.ts src/detection/rules/financial.test.ts src/detection/_framework/registry.ts
+git commit -m "$(cat <<'EOF'
+feat(detection/rules): add 10 financial detection rules
+
+KRW won-amount/won-unit/won-formal, USD symbol/code, foreign
+symbol/code, percentage, Korean fraction, label-driven context.
+Two post-filters: wonAmountInRange (>999조 rejected),
+percentageInRange (>10000% rejected). 130+ tests.
+
+Co-Authored-By: Codex <noreply@openai.com>
+EOF
+)"
+```
+
+### Step 4 — Temporal rules (1 commit)
+
+**What to do:** Create `rules/temporal.ts` + `rules/temporal.test.ts`, update registry (§ 10).
+
+**Commit message:** `feat(detection/rules): add 8 temporal detection rules`
+
+### Step 5 — Entities rules (1 commit)
+
+**What to do:** Create `rules/entities.ts` + `rules/entities.test.ts`, update registry (§ 11).
+
+**Commit message:** `feat(detection/rules): add 12 entity detection rules`
+
+### Step 6 — Legal rules (1 commit)
+
+**What to do:** Create `rules/legal.ts` + `rules/legal.test.ts`, update registry — FINAL state of `ALL_REGEX_RULES` (§ 13).
+
+**Commit message:** `feat(detection/rules): add 6 legal detection rules (registry complete: 44 total)`
+
+### Step 7 — Structural parsers (1 commit)
+
+**What to do:**
+1. Create all 5 parser files under `rules/structural/` (§ 12.3–§ 12.7)
+2. Create all 5 parser test files
+3. Replace the empty-array scaffold in `rules/structural/index.ts` with populated version (§ 12.8)
+
+**Verify:**
+```bash
+bun run test src/detection/rules/structural/ 2>&1 | tail -5
+# 65+ tests pass
+```
+
+**Commit message:** `feat(detection/rules): add 5 structural parsers (definition/party/recitals/signature/header)`
+
+### Step 8 — Role blacklists (1 commit)
+
+**What to do:**
+1. Create `rules/role-blacklist-ko.ts` + `rules/role-blacklist-ko.test.ts` (§ 14.3)
+2. Create `rules/role-blacklist-en.ts` + `rules/role-blacklist-en.test.ts` (§ 14.3)
+
+**Commit message:** `feat(detection/rules): add Korean and English role-word blacklists (50 words each)`
+
+### Step 9 — Heuristics (1 commit)
+
+**What to do:**
+1. Create all 4 heuristic files under `rules/heuristics/` (§ 14.4.1–§ 14.4.4)
+2. Create all 4 heuristic test files
+3. Replace the empty-array scaffold in `rules/heuristics/index.ts` with populated version (§ 14.5)
+
+**Verify:**
+```bash
+bun run test src/detection/rules/heuristics/ 2>&1 | tail -5
+# 60+ tests pass
+```
+
+**Commit message:** `feat(detection/rules): add 4 heuristics (capitalization/quoted/repeat/email-domain)`
+
+### Step 10 — ReDoS guard extensions (1 commit)
+
+**What to do:**
+1. Extend `_framework/redos-guard.test.ts` to fuzz all 44 regex rules (50ms budget), all 5 structural parsers (100ms budget), and all 4 heuristics (100ms budget)
+
+**Verify:**
+```bash
+bun run test src/detection/_framework/redos-guard.test.ts 2>&1 | tail -5
+# All fuzz tests pass within budget
+```
+
+**Commit message:** `test(detection/framework): extend ReDoS guard to Phase 1 rules, parsers, and heuristics`
+
+### Step 11 — detect-all.ts (1 commit)
+
+**What to do:**
+1. Create `src/detection/detect-all.ts` (§ 8.2)
+2. Create `src/detection/detect-all.test.ts` with ≥ 50 tests (§ 8.6)
+3. Create `src/detection/detect-all.integration.test.ts` with ≥ 10 tests (§ 8.7)
+
+**Verify:**
+```bash
+bun run test src/detection/detect-all 2>&1 | tail -5
+# 60+ tests pass
+bun run test src/detection/detect-pii.characterization.test.ts 2>&1 | tail -5
+# Still passes (detect-pii untouched)
+```
+
+**Commit message:** `feat(detection): add detect-all.ts — Phase 1 parallel detection pipeline`
+
+### Step 12 — Engine migration (1 commit)
+
+**What to do:**
+1. Migrate `src/ui/engine.ts` from `detect-pii` to `detect-all` (§ 8.3–§ 8.4)
+2. Add `NonPiiCandidate` interface to `engine.ts`
+3. Add `nonPiiCandidates` field to `Analysis` interface
+4. Replace `aggregatePii` with `aggregateAll` (§ 8.4)
+5. Extend `defaultSelections` to include `nonPiiCandidates`
+6. Append 1 new test to `engine.test.ts` (§ 8.5)
+
+**Verify:**
+```bash
+bun run test src/ui/engine.test.ts 2>&1 | tail -5
+# 18 tests pass (17 Phase 0 + 1 Phase 1)
+bun run test src/detection/detect-pii.characterization.test.ts 2>&1 | tail -5
+# Still passes (detect-pii.ts untouched, engine migration is additive)
+```
+
+**Commit message:** `feat(ui/engine): migrate to detect-all pipeline, add nonPiiCandidates to Analysis`
+
+### Step 13 — Final ship gate (no separate commit — verification only)
+
+Run the full verification sequence from § 17. ALL must pass.
+
+```bash
+bun run test 2>&1 | tail -10
+# ~1316 passing, 0 failing
+bun run typecheck 2>&1 | tail -3
+# 0 errors
+bun run lint 2>&1 | tail -5
+# 0 errors
+bun run build 2>&1 | tail -10
+# Build succeeds
+```
+
+If any fail, fix and amend step 12's commit (or create a new fix commit).
+
+### Step 14 — Performance budget test (1 commit)
+
+**What to do:** Add a perf-budget test in `detect-all.integration.test.ts`:
+
+```typescript
+it("buildAllTargetsFromZip completes within 2 seconds on the worst-case fixture", async () => {
+  const bytes = await loadFixture("bilingual_nda_worst_case.docx");
+  const zip = await JSZip.loadAsync(bytes);
+  const start = Date.now();
+  await buildAllTargetsFromZip(zip);
+  expect(Date.now() - start).toBeLessThan(2000);
+});
+```
+
+**Commit message:** `test(detection): add perf-budget test for buildAllTargetsFromZip (2s budget)`
+
+### Step 15 — Handback document (1 commit)
+
+**What to do:** Create `docs/phases/phase-1-handback.md` using the template in § 18.6.
+
+**Commit:**
+```bash
+git add docs/phases/phase-1-handback.md
+git commit -m "$(cat <<'EOF'
+docs(phases): add Phase 1 handback — rulebook complete
+
+Co-Authored-By: Codex <noreply@openai.com>
+EOF
+)"
+```
+
+### TDD step summary
+
+| Step | Files touched | Tests added | Running total |
+|---|---|---:|---:|
+| 1 | (none — verify) | 0 | 559 |
+| 2 | types.test.ts, runner.ts, runner.test.ts, registry.ts, structural/index.ts, heuristics/index.ts | ~47 | ~606 |
+| 3 | financial.ts, financial.test.ts, registry.ts | ~130 | ~736 |
+| 4 | temporal.ts, temporal.test.ts, registry.ts | ~104 | ~840 |
+| 5 | entities.ts, entities.test.ts, registry.ts | ~156 | ~996 |
+| 6 | legal.ts, legal.test.ts, registry.ts | ~78 | ~1074 |
+| 7 | structural/*.ts, structural/*.test.ts | ~65 | ~1139 |
+| 8 | role-blacklist-ko.ts, role-blacklist-en.ts, tests | ~10 | ~1149 |
+| 9 | heuristics/*.ts, heuristics/*.test.ts | ~60 | ~1209 |
+| 10 | redos-guard.test.ts | ~46 | ~1255 |
+| 11 | detect-all.ts, detect-all.test.ts, detect-all.integration.test.ts | ~60 | ~1315 |
+| 12 | engine.ts, engine.test.ts | ~1 | ~1316 |
+| 13 | (verification only) | 0 | ~1316 |
+| 14 | detect-all.integration.test.ts | ~1 | ~1317 |
+| 15 | phase-1-handback.md | 0 | ~1317 |
+
+### Commit conventions
+
+Every commit MUST follow this format:
+
+```
+<type>(<scope>): <short summary in imperative mood>
+
+<optional body — wrap at 72 chars>
+
+Co-Authored-By: Codex <noreply@openai.com>
+```
+
+Valid types: `feat`, `refactor`, `test`, `fix`, `docs`. Valid scopes: `detection`, `detection/framework`, `detection/rules`, `ui/engine`. See Phase 0 § 16 for extended rules.
+
+**Critical rules (same as Phase 0):**
+- Do NOT squash commits. Each TDD step is its own commit.
+- Do NOT amend commits after the initial commit. Fix forward.
+- Do NOT use `--no-verify`. If a pre-commit hook fails, fix the issue.
+- Use HEREDOCs for multi-line commit messages.
+- Include `Co-Authored-By: Codex <noreply@openai.com>` on every commit.
+
+---
+
+## 17. Verification commands (ship gate)
+
+Run these commands at step 13 (after the engine migration commit). All MUST succeed for the phase to be accepted.
+
+```bash
+cd "/Users/kpsfamily/코딩 프로젝트/document-redactor"
+
+# 1. Git state
+git status                           # working tree clean
+git log --oneline -18                # 13-15 new commits on top of Phase 0 HEAD
+git diff $(git log --oneline -20 | tail -1 | awk '{print $1}') --stat
+
+# 2. Tests — THE MOST IMPORTANT CHECK
+bun run test 2>&1 | tail -10
+# Expected: ~1316 passing, 0 failing
+
+# 3. Phase 0 ship gate — MUST STILL PASS
+bun run test src/detection/detect-pii.characterization.test.ts 2>&1 | tail -10
+# All T1-T18 pass byte-for-byte
+
+# 4. Phase 0 integration — MUST STILL PASS
+bun run test src/detection/detect-pii.integration.test.ts 2>&1 | tail -5
+
+# 5. Phase 0 behavioral — MUST STILL PASS
+bun run test src/detection/detect-pii.test.ts 2>&1 | tail -5
+
+# 6. Phase 1 new pipeline tests
+bun run test src/detection/detect-all.test.ts 2>&1 | tail -5
+bun run test src/detection/detect-all.integration.test.ts 2>&1 | tail -5
+
+# 7. Phase 1 engine migration
+bun run test src/ui/engine.test.ts 2>&1 | tail -5
+# 18 tests (17 Phase 0 + 1 Phase 1)
+
+# 8. ReDoS guard — all rules + parsers + heuristics within budget
+bun run test src/detection/_framework/redos-guard.test.ts 2>&1 | tail -5
+
+# 9. Type check
+bun run typecheck 2>&1 | tail -5
+# 0 errors
+
+# 10. Lint
+bun run lint 2>&1 | tail -5
+# 0 errors
+
+# 11. Build
+bun run build 2>&1 | tail -10
+# Completes without errors
+ls -la dist/document-redactor.html dist/document-redactor.html.sha256
+
+# 12. Build determinism
+FIRST=$(cat dist/document-redactor.html.sha256 | awk '{print $1}')
+bun run build 2>&1 > /dev/null
+SECOND=$(cat dist/document-redactor.html.sha256 | awk '{print $1}')
+[ "$FIRST" = "$SECOND" ] && echo "DETERMINISM OK: $FIRST" || echo "FAIL"
+
+# 13. No accidental untracked files
+git status --porcelain | grep -v '^??' || echo "clean"
+
+# 14. Registry verification — rule counts
+bun run -e "
+  import { ALL_REGEX_RULES } from './src/detection/_framework/registry.js';
+  import { ALL_STRUCTURAL_PARSERS } from './src/detection/rules/structural/index.js';
+  import { ALL_HEURISTICS } from './src/detection/rules/heuristics/index.js';
+  console.log('Regex rules:', ALL_REGEX_RULES.length, '(expected: 44)');
+  console.log('Structural parsers:', ALL_STRUCTURAL_PARSERS.length, '(expected: 5)');
+  console.log('Heuristics:', ALL_HEURISTICS.length, '(expected: 4)');
+  console.log('Total detection items:', ALL_REGEX_RULES.length + ALL_STRUCTURAL_PARSERS.length + ALL_HEURISTICS.length, '(expected: 53)');
+"
+
+# 15. Performance budget
+bun run test src/detection/detect-all.integration.test.ts --grep "perf" 2>&1 | tail -5
+```
+
+**If ANY of these fail, the phase is NOT complete.** Do not proceed to the handback until every check is green.
+
+**In particular:**
+- Check #3 (Phase 0 characterization) is the MOST critical — if it fails, the new pipeline somehow broke the legacy shim, which means detect-pii.ts was modified (violation of § 3 invariant 3).
+- Check #14 (registry counts) verifies the rule count matches the brief: 44 regex + 5 parsers + 4 heuristics = 53 total.
+- Check #12 (build determinism) verifies that adding new detection code does not introduce non-determinism in the single-file bundle.
+
+---
+
+## 18. Gotchas, out of scope, acceptance criteria, handback, error handling
+
+### 18.1 Gotchas (non-obvious constraints)
+
+All Phase 0 gotchas (§ 17.1–§ 17.11 of the Phase 0 brief) still apply. Phase 1 adds:
+
+**18.1.1 Korean NFC assumption.** All Korean regex rules (§ 9, § 10, § 11, § 13) assume the input text is NFC-composed (single-codepoint Hangul syllables). Jamo-decomposed input is an acknowledged edge case. If a test fixture contains decomposed Korean and rules don't match, the fixture is wrong, not the rules.
+
+**18.1.2 Structural definition source union is locked.** The `StructuralDefinition.source` union has exactly 3 values. Parsers 2 (signature-block) and 5 (header-block) map to existing values per § 12.9. Do NOT extend the union.
+
+**18.1.3 Heuristic confidence is a tuning knob, not a contract.** The confidence values in § 14 (0.5, 0.6, 0.7, 0.8) are initial calibration based on category-level reasoning. Real-document testing (Phase 5) will adjust them. Do not treat these as immutable constants — but also do not change them in Phase 1 without a documented reason.
+
+**18.1.4 `detect-all.ts` and `detect-pii.ts` are parallel.** They do NOT share state. Calling `detectAll` does NOT affect `detectPii`. Calling `buildTargetsFromZip` returns the LEGACY target list; calling `buildAllTargetsFromZip` returns the PHASE 1 target list (a superset). The engine migration (step 12) switches `engine.ts` to the Phase 1 pipeline, but the legacy pipeline continues to exist and be tested.
+
+**18.1.5 Role blacklists are data, not code.** `role-blacklist-ko.ts` and `role-blacklist-en.ts` are pure data exports (a `ReadonlySet<string>`). They have no logic. Heuristics import them and check membership. Do NOT add "smart" filtering logic to the blacklist files themselves.
+
+**18.1.6 Variable-length lookbehind.** Rules 10 (§ 9.4.10 `amount-context-ko`), § 10.4.8 (`date-context-ko`), § 11.4.11 (`ko-identity-context`), § 11.4.12 (`en-identity-context`), § 13.4.6 (`legal-context`) use ES2018+ variable-length lookbehind. This is supported in Node 18+ and all modern browsers. If CI runs on Node 16 or earlier, these rules will throw at runtime. Verify the CI environment is Node 18+ before running tests.
+
+**18.1.7 `detect-all.ts` does per-scope language detection.** Each scope in a zip gets its own `detectLanguage` call. A bilingual zip where the body is Korean and the footnotes are English will run Korean rules on the body and English rules on the footnotes — this is correct and intended.
+
+### 18.2 Out of scope (DO NOT DO)
+
+- ❌ Modify `src/detection/patterns.ts` or `src/detection/detect-pii.ts` (legacy shims, untouched)
+- ❌ Modify `src/detection/detect-pii.characterization.test.ts` (Phase 0 ship gate)
+- ❌ Modify `src/detection/detect-pii.integration.test.ts` or `src/detection/detect-pii.test.ts`
+- ❌ Modify `src/propagation/` or `src/docx/` or `src/finalize/`
+- ❌ Modify `src/ui/` other than `engine.ts` and `engine.test.ts` (and only in step 12)
+- ❌ Modify Svelte components (`CandidatesPanel.svelte`, `App.svelte`, etc.)
+- ❌ Modify `package.json` dependencies, `vite.config.ts`, `eslint.config.js`, `tsconfig.json`, `svelte.config.js`
+- ❌ Modify `tests/fixtures/` (fixture generation is out of scope)
+- ❌ Add network code (fetch, XMLHttpRequest, WebSocket, EventSource, dynamic import, sendBeacon)
+- ❌ Add `// @ts-ignore`, `// @ts-expect-error` (except the one in § 6.3 types.test.ts which tests compile-time rejection), `// eslint-disable`, `any` casts
+- ❌ Add `try/catch` in runner, parsers, heuristics, or detect-all (fail-loud invariant)
+- ❌ `git push` (commit locally only)
+- ❌ Redesign the UI (separate brief per finding 1.3D)
+- ❌ Consolidate `propagation/defined-terms.ts` with the new structural parsers (separate post-Phase-1 hygiene task)
+- ❌ Add features beyond the 46 detection items specified in § 9–14
+- ❌ Refactor, restyle, or reformat code outside the strict Phase 1 scope
+- ❌ Add comments or docstrings to unmodified files
+
+**If you feel an urge to do any of these, STOP.** Record the urge in the handback doc's "deviations" section, but do not act on it.
+
+### 18.3 Acceptance criteria (verifiable, numeric)
+
+Your work is accepted if and only if ALL of the following are true. Run each check and report the result in the handback doc.
+
+1. ✅ `bun run test` → `Tests N passed` where N ≥ 1200 (559 Phase 0 + ~757 Phase 1)
+2. ✅ `bun run test` → 0 failing
+3. ✅ `bun run typecheck` → 0 errors
+4. ✅ `bun run lint` → 0 errors (pre-existing warnings OK, no new warnings)
+5. ✅ `bun run build` → `dist/document-redactor.html` produced, no errors
+6. ✅ Build determinism: running `bun run build` twice produces byte-identical sha256
+7. ✅ `detect-pii.characterization.test.ts` passes ALL T1–T18 (Phase 0 ship gate preserved)
+8. ✅ `detect-pii.integration.test.ts` passes
+9. ✅ `detect-pii.test.ts` passes
+10. ✅ `detect-all.test.ts` passes (≥ 50 tests)
+11. ✅ `detect-all.integration.test.ts` passes (≥ 10 tests)
+12. ✅ `engine.test.ts` passes (18 tests: 17 Phase 0 + 1 Phase 1)
+13. ✅ `ALL_REGEX_RULES.length === 44` (8 identifiers + 10 financial + 8 temporal + 12 entities + 6 legal)
+14. ✅ `ALL_STRUCTURAL_PARSERS.length === 5`
+15. ✅ `ALL_HEURISTICS.length === 4`
+16. ✅ `ROLE_BLACKLIST_KO.size === 50`
+17. ✅ `ROLE_BLACKLIST_EN.size === 50`
+18. ✅ `src/detection/detect-all.ts` exports exactly 8 symbols (§ 8.1)
+19. ✅ `src/ui/engine.ts` `Analysis` interface includes `nonPiiCandidates` field
+20. ✅ `defaultSelections(analysis)` includes all `nonPiiCandidates.text` entries
+21. ✅ ReDoS guard fuzz passes: all 44 regex rules (50ms), all 5 parsers (100ms), all 4 heuristics (100ms)
+22. ✅ `detect-pii.ts` is NOT modified (diff against Phase 0 HEAD is empty)
+23. ✅ `patterns.ts` is NOT modified
+24. ✅ `src/propagation/` is NOT modified (diff is empty)
+25. ✅ No `try` keyword in `runner.ts`, `detect-all.ts`, or any rule/parser/heuristic file
+26. ✅ All git commits follow the conventional commit format with `Co-Authored-By: Codex <noreply@openai.com>`
+27. ✅ `buildAllTargetsFromZip` on the worst-case fixture is a SUPERSET of legacy `buildTargetsFromZip` output (every legacy target is present)
+28. ✅ Performance: `buildAllTargetsFromZip` on the worst-case fixture completes in < 2 seconds
+29. ✅ `git status` is clean (no untracked files other than gitignored paths)
+30. ✅ Handback doc created at `docs/phases/phase-1-handback.md`
+
+If any criterion fails, the phase is NOT accepted. Fix and re-verify before handback.
+
+### 18.4 Error handling (what to do when you get stuck)
+
+**Same 3-attempt rule as Phase 0:** if you've tried 3 approaches to fix a problem and none work, STOP. Write a `BLOCKED` section in the handback doc and exit. Do not commit broken code.
+
+**If a test fails unexpectedly:**
+1. Read the error message carefully — which assertion? Expected vs actual?
+2. Run just that test file in isolation to reproduce.
+3. Check the rule's pattern source — is the regex correct?
+4. Check the registry — is the rule registered?
+5. Check imports — missing `.js` extension? Missing `import type`?
+6. DO NOT skip, suppress, disable, or modify existing tests.
+
+**If the characterization tests fail:**
+This means the legacy pipeline has been broken by the new code. The most likely cause is that `detect-pii.ts` was accidentally modified, or that `engine.test.ts` was changed in a way that broke its imports. Check `git diff HEAD -- src/detection/detect-pii.ts` — it should be empty.
+
+**If TypeScript / ESLint / Build fails:**
+Same protocol as Phase 0 § 21. DO NOT disable compiler options, add `@ts-ignore`, or modify config files.
+
+**If the ReDoS guard fails for a new rule:**
+The rule has a pathological backtracking pattern. The fix is to redesign the regex (typically: remove nested quantifiers, cap repetition with `{N,M}`, replace `.*` with `[^X]*` with a terminator character class). DO NOT increase the budget or skip the test.
+
+**If the performance budget test fails (> 2 seconds):**
+Profile the run — which phase is slow? If the structural phase is slow, a parser may have an O(n²) loop. If the heuristic phase is slow, the repeatability heuristic may be scanning too broadly. Optimize the hot path; do NOT remove the performance test.
+
+### 18.5 Mission statement vs section conflict
+
+If you find a contradiction between the § 1 mission statement and a later section, the mission statement wins. Record the contradiction in the handback doc's "deviations" section. Exceptions: the § 3 invariants override EVERYTHING including the mission statement — they are the non-negotiable constraints that must not be violated under any circumstances.
+
+### 18.6 Handback document template
+
+When all 30 acceptance criteria are green, create `docs/phases/phase-1-handback.md`:
+
+```markdown
+# Phase 1 handback — Comprehensive rulebook
+
+**Completed:** YYYY-MM-DD HH:MM
+**Executed by:** Codex 5.4 xhigh (or whichever agent executed)
+**Starting commit:** {Phase 0 HEAD short hash}
+**Ending commit:** {short hash of HEAD}
+
+## Summary (1 paragraph)
+
+One paragraph: what was done, how many files created/modified, how many tests
+added, total detection item count, notable findings.
+
+## Detection item counts
+
+- Regex rules: 44 (identifiers 8 + financial 10 + temporal 8 + entities 12 + legal 6)
+- Structural parsers: 5
+- Heuristics: 4
+- Role blacklist entries: 100 (50 Korean + 50 English)
+- Total detection items: 53
+
+## Commits created
+
+{output of `git log --oneline {Phase0HEAD}..HEAD`}
+
+## Files created
+
+- src/detection/rules/financial.ts  ({N} lines)
+- src/detection/rules/financial.test.ts  ({N} lines)
+- ... (full list)
+
+## Files modified
+
+- src/detection/_framework/runner.ts  (extended: +{N} lines)
+- src/detection/_framework/registry.ts  (extended: +{N} lines)
+- src/detection/_framework/types.test.ts  (extended: +{N} lines)
+- src/detection/_framework/runner.test.ts  (extended: +{N} lines)
+- src/detection/_framework/redos-guard.test.ts  (extended: +{N} lines)
+- src/detection/rules/structural/index.ts  (replaced scaffold)
+- src/detection/rules/heuristics/index.ts  (replaced scaffold)
+- src/ui/engine.ts  (migrated to detect-all, added nonPiiCandidates)
+- src/ui/engine.test.ts  (1 new test)
+
+## Tests
+
+- Before: ~559 passing
+- After: {N} passing
+- New: ~757 added across {M} files
+
+## Build
+
+- Before hash (Phase 0): {old hash}
+- After hash (Phase 1): {new hash}
+- Determinism verified: yes
+
+## Acceptance criteria
+
+{For each of the 30 criteria in § 18.3: ✅ or ❌ with evidence}
+
+## Deviations from brief
+
+{Any section where a judgment call differed from the brief. If none: "None."}
+
+## Gotchas encountered
+
+{Anything non-obvious encountered during execution.}
+
+## Manual verification recommended
+
+- [ ] Open `dist/document-redactor.html` in a browser, drop `tests/fixtures/bilingual_nda_worst_case.docx`, verify redaction still works
+- [ ] Verify `nonPiiCandidates` appears in the Analysis (check with console.log in browser)
+- [ ] Spot-check 2-3 financial rules: does "50,000원" in the fixture get detected?
+- [ ] Spot-check 1 structural parser: does the party-declaration extract from "by and between"?
+
+## Suggested next steps
+
+1. **Phase 2 — UI redesign** (per session-log-2026-04-11-v2 finding 1.3): design the category-grouped candidate panel with add/remove UX, confidence-sorted sections, over/under cover visual distinction
+2. **Heuristic tuning** (Phase 5 measurement): run the 4 heuristics against 10+ real contracts, calibrate confidence thresholds, extend role blacklists based on observed false positives
+3. **Consolidate Lane C**: merge `propagation/defined-terms.ts` with `structural/definition-section.ts` into a single definition source
+4. **Extend Korean NFC handling**: add NFD→NFC pre-normalization for jamo-decomposed Korean text (rare edge case, currently acknowledged limitation)
+```
+
+Do NOT commit the handback doc in the same commit as production code. It gets its own commit (step 15 of § 16).
+
+---
+
+## End of brief
+
+This document is `docs/phases/phase-1-rulebook.md`. It specifies the complete Phase 1 rulebook: 46 new detection items across 6 categories, a 3-phase runner pipeline, a parallel `detect-all.ts` API, and an engine migration. All decisions were locked during plan-eng-review (session-log-2026-04-11-v2). The 15 TDD steps, 17 verification commands, and 30 acceptance criteria are the execution contract.
+
+**When the PARTIAL DRAFT warning at the top is removed, this brief is ready for Codex execution.**
 
 **Status as of 2026-04-12 v8 (session +4):** § 0–14 written (ALL rule specs complete). § 15–18 pending (meta/operational).
 
@@ -5587,27 +6192,11 @@ The insight is captured in the UI redesign brief scope (deferred per 1.3D). Draf
 
 Phase 1 brief does NOT address UI. It only ensures `engine.ts` adds `nonPiiCandidates` so a future UI can render what's there.
 
-### Next session startup checklist
+### Authoring complete
 
-1. Open this file and confirm the "PARTIAL DRAFT" warning is still at the top — it should now say "§ 0–14 written (ALL rule specs complete)".
-2. Verify `git log --oneline -10` shows the full commit chain.
-3. Verify `bun run test` still shows 422 passing.
-4. Write § 15 (testing requirements summary — ~150 lines), then § 16 (TDD sequence — ~600 lines, the longest remaining section), then § 17 (verification commands — ~200 lines), then § 18 (gotchas/acceptance/handback/error handling — ~500 lines).
-5. Model § 15–18 on the Phase 0 brief's §§ 14–21 (which have the same structural role — testing/TDD/verification/acceptance).
-6. **Key decision for § 16:** the TDD sequence must commit at each step, and the step order must build from the inside out (types → runner → parsers → regex rules → heuristics → detect-all → engine migration → ship gate). This ensures each commit is individually testable.
-7. After each section: `wc -l docs/phases/phase-1-rulebook.md`, commit with a message like `docs(phases): phase-1 brief § 11 entities rules (partial)`.
-8. Continue across sessions until every section is written, then remove the "PARTIAL DRAFT" warning at the top as the final commit of the brief-authoring stream.
+All 18 sections written across sessions +1 through +5 (2026-04-11 to 2026-04-12). The "PARTIAL DRAFT" warning at the top has been replaced with the "COMPLETE — READY FOR CODEX EXECUTION" banner. This brief is now ready to be handed to Codex.
 
-### Do NOT in future sessions
+### Sections locked
 
-- Do NOT re-run plan-eng-review on this brief. The review is complete.
-- Do NOT rewrite § 0–14. They are locked. § 6–8: framework extension surface. § 9: 10 financial rules. § 10: 8 temporal rules + calendar post-filters. § 11: 12 entity rules. § 12: 5 structural parsers + source-mapping rationale. § 13: 6 legal rules. § 14: 4 heuristics + 2 role blacklists (50 words each). Do not "improve", "tune", rename, refactor, or extend the source union without a ReDoS re-audit and a plan-eng-review re-opener.
-- Do NOT hand the brief to Codex until the "PARTIAL DRAFT" warning is removed.
-- Do NOT commit Phase 1 content changes to `src/` in the same session as brief authoring. This is a doc-only stream until the brief is complete.
-- Do NOT modify the Phase 0 brief again after commit 187b7f8. It is locked for Codex execution.
-
----
-
-<!-- END OF PARTIAL DRAFT -->
-<!-- Pending sections will be authored in future sessions starting at the RESUME POINTER above. -->
+Do NOT rewrite any section (§ 0–18). All decisions are locked. The plan-eng-review is complete. Regex sources, parser implementations, heuristic confidence values, role blacklist contents, TDD step order, acceptance criteria, and the 3-value source union are all frozen. Changes require a plan-eng-review re-opener.
 
