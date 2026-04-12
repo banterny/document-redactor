@@ -31,15 +31,30 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const DIST = path.join(REPO_ROOT, "dist");
 const ARTIFACT = path.join(DIST, "document-redactor.html");
+const FIXTURES_DIR = path.join(REPO_ROOT, "tests/fixtures");
 
 /** 3 MB hard cap — mirrors vite.config.ts. */
 const BUNDLE_SIZE_CAP_BYTES = 3 * 1024 * 1024;
+
+function loadFixture(name: string): Uint8Array {
+  return new Uint8Array(fs.readFileSync(path.join(FIXTURES_DIR, name)));
+}
+
+function loadFixtureFile(
+  name: string,
+  fileName = "test.docx",
+): File {
+  const bytes = Uint8Array.from(loadFixture(name));
+  return new File([bytes.buffer], fileName);
+}
+
+type AppStateModule = typeof import("./state.svelte.ts");
 
 describe("ship gate — single-file build", () => {
   let html: string;
@@ -124,5 +139,69 @@ describe("ship gate — single-file build", () => {
     // Exact format: "<64 hex chars><space><space>document-redactor.html<\n>"
     // Two-space separator = GNU coreutils text mode, parseable by `sha256sum -c`.
     expect(sidecarContent).toBe(`${expected}  document-redactor.html\n`);
+  });
+});
+
+describe("ship gate — manual candidate state flow", () => {
+  let appState: AppStateModule["appState"];
+
+  beforeAll(async () => {
+    const stateShim = Object.assign(
+      <T>(value: T): T => value,
+      {
+        eager: <T>(value: T): T => value,
+        raw: <T>(value: T): T => value,
+        snapshot: <T>(value: T): T => value,
+      },
+    );
+    const globalWithState = globalThis as typeof globalThis & {
+      $state?: typeof $state;
+    };
+    globalWithState.$state = stateShim as typeof $state;
+    ({ appState } = await import("./state.svelte.ts"));
+  });
+
+  beforeEach(() => {
+    appState.reset();
+  });
+
+  it("addManualCandidate adds text to both manualAdditions and selections", async () => {
+    await appState.loadFile(loadFixtureFile("bilingual_nda_worst_case.docx"));
+
+    const before = appState.selections.size;
+    appState.addManualCandidate("financial", "USD 1,000,000");
+
+    expect(appState.selections.has("USD 1,000,000")).toBe(true);
+    expect(appState.manualAdditions.get("financial")?.has("USD 1,000,000")).toBe(true);
+    expect(appState.selections.size).toBe(before + 1);
+  });
+
+  it("removeManualCandidate removes text from both manualAdditions and selections", async () => {
+    await appState.loadFile(loadFixtureFile("bilingual_nda_worst_case.docx"));
+
+    appState.addManualCandidate("financial", "USD 1,000,000");
+    appState.removeManualCandidate("financial", "USD 1,000,000");
+
+    expect(appState.selections.has("USD 1,000,000")).toBe(false);
+    expect(appState.manualAdditions.get("financial")?.has("USD 1,000,000")).toBe(false);
+  });
+
+  it("manualAdditions persist across re-analysis via loadFile", async () => {
+    await appState.loadFile(loadFixtureFile("bilingual_nda_worst_case.docx"));
+    appState.addManualCandidate("financial", "USD 1,000,000");
+    await appState.loadFile(loadFixtureFile("bilingual_nda_worst_case.docx"));
+
+    expect(appState.selections.has("USD 1,000,000")).toBe(true);
+    expect(appState.manualAdditions.get("financial")?.has("USD 1,000,000")).toBe(true);
+  });
+
+  it("reset clears both selections and manualAdditions", async () => {
+    await appState.loadFile(loadFixtureFile("bilingual_nda_worst_case.docx"));
+
+    appState.addManualCandidate("financial", "USD 1,000,000");
+    appState.reset();
+
+    expect(appState.selections.size).toBe(0);
+    expect(appState.manualAdditions.get("financial")?.size ?? 0).toBe(0);
   });
 });
