@@ -2,25 +2,21 @@
 
 > ⚠️ **PARTIAL DRAFT — DO NOT EXECUTE** ⚠️
 >
-> This brief is **incomplete** as of 2026-04-12 (v7, after session +3 second half).
-> § 0–12 are written (orientation, mission, invariants, architecture, file
-> layout, framework type extensions, runner extensions, detect-all.ts pipeline,
-> financial rules, temporal rules, entities rules, and the 5 structural
-> parsers). The remaining rule content (§ 13–14 legal / heuristics) and
-> § 15–18 (testing / TDD / verification / acceptance) are **NOT YET AUTHORED**.
+> This brief is **incomplete** as of 2026-04-12 (v8, after session +4). § 0–14
+> are written — ALL rule/parser/heuristic specifications are complete (46 total
+> detection items across 6 categories). Only § 15–18 remain (testing summary,
+> TDD sequence, verification commands, gotchas/acceptance/handback).
 >
-> **Do NOT hand this to Codex for execution in its current state.** Codex would
-> read the file-layout section, fail to find rule specifications in § 13–14,
-> and produce garbage code trying to fill in the gaps.
+> **Do NOT hand this to Codex for execution in its current state.** § 15–18
+> provide the testing requirements, the 18-step TDD sequence, and the
+> acceptance criteria — without them Codex cannot verify its own work.
 >
 > **If you are Claude in a future session:** jump to the `## RESUME POINTER` section
 > at the very bottom of this file. It tells you exactly where to pick up writing.
 >
-> **If you are the user:** this file will be completed across 1–2 more Claude
-> sessions. Decisions are locked (see session log 2026-04-11-v2). The next step is
-> writing § 13 (legal rules, ~400 lines — reuses § 9/10/11 template), then § 14
-> (heuristics + role blacklists, ~700 lines — requires RULES_GUIDE § 6 as
-> reference), followed by § 15–18 (testing / TDD / verification / acceptance).
+> **If you are the user:** this file will be completed in **ONE more Claude
+> session**. The remaining ~1450 lines (§ 15–18) are meta/operational sections
+> that follow existing patterns from Phase 0's brief.
 
 ---
 
@@ -4524,9 +4520,986 @@ After the § 12 commit, the `_STRUCTURAL` import resolves to the populated array
 
 ---
 
+## 13. `rules/legal.ts` — 6 regex rules
+
+Six legal-domain detection rules covering Korean case numbers, court names, statute references, and their English counterparts. Same regex-rule shape as § 9 / § 10 / § 11 — reuses the template. File targets ~150 lines of TypeScript + ~150 lines of tests.
+
+### 13.1 Category overview
+
+| # | id | Languages | Levels | What it catches |
+|---|---|---|---|---|
+| 1 | `legal.ko-case-number` | `["ko"]` | S, P | `2024가합12345`, `2023나67890`, `2024노1234` |
+| 2 | `legal.ko-court-name` | `["ko"]` | S, P | `서울중앙지방법원`, `대법원`, `서울고등법원`, `특허법원`, `헌법재판소` |
+| 3 | `legal.ko-statute-ref` | `["ko"]` | S, P | `제15조`, `제15조 제2항`, `법률 제1234호`, `민법 제750조` |
+| 4 | `legal.en-case-citation` | `["en"]` | S, P | `123 F.3d 456`, `456 U.S. 789`, `789 S. Ct. 123` |
+| 5 | `legal.en-statute-ref` | `["en"]` | S, P | `Section 230`, `17 U.S.C. § 101`, `42 U.S.C. § 1983` |
+| 6 | `legal.legal-context` | `["ko", "en"]` | S, P | `사건번호: 2024가합12345`, `Case No.: 123-456`, `Court: Seoul Central District Court` |
+
+Legend: **S** = standard, **P** = paranoid. No conservative tier — legal references are contextually important but occasionally appear in non-redactable boilerplate.
+
+### 13.2 Normalization notes
+
+Same assumptions as § 9.2. Legal-specific notes:
+
+- **Section sign `§` (U+00A7).** NOT normalized by `normalizeForMatching` — passes through as-is. The `legal.en-statute-ref` rule matches it literally.
+- **Korean court names are compound nouns.** `서울중앙지방법원` is one continuous string (no spaces). The regex matches them as literal sequences.
+- **Korean case number syllables.** The type syllables between the year and the docket number (가합, 나, 다, 노, 도, etc.) are NFC-composed Hangul syllables. Same NFC assumption as § 9.2.
+
+### 13.3 Full file content (`rules/legal.ts`)
+
+Put this EXACTLY into `src/detection/rules/legal.ts`:
+
+```typescript
+/**
+ * Legal category — case numbers, court names, statute references.
+ *
+ * Six regex rules covering:
+ *
+ *   1. Korean case number (2024가합12345)
+ *   2. Korean court name (서울중앙지방법원, 대법원, ...)
+ *   3. Korean statute reference (제15조, 법률 제1234호, 민법 제750조)
+ *   4. English case citation (123 F.3d 456)
+ *   5. English statute reference (Section 230, 17 U.S.C. § 101)
+ *   6. Legal context scanner (사건번호: ..., Case No.: ...)
+ *
+ * No post-filters. Legal patterns are structurally unambiguous; out-of-range
+ * values (e.g., a year "9999" in a case number) are rejected by the regex
+ * year bounds.
+ *
+ * See:
+ *   - docs/phases/phase-1-rulebook.md § 13 — authoritative rule specs
+ *   - docs/RULES_GUIDE.md § 2.7 — legal category boundary
+ *   - docs/RULES_GUIDE.md § 7 — ReDoS checklist
+ */
+
+import type { RegexRule } from "../_framework/types.js";
+
+export const LEGAL = [
+  {
+    id: "legal.ko-case-number",
+    category: "legal",
+    subcategory: "ko-case-number",
+    pattern:
+      /(?<!\d)(?:19|20)\d{2}[가-힣]{1,3}\d{1,6}(?!\d)/g,
+    levels: ["standard", "paranoid"],
+    languages: ["ko"],
+    description:
+      "Korean court case number: 4-digit year + case-type syllables + docket digits (e.g., '2024가합12345')",
+  },
+  {
+    id: "legal.ko-court-name",
+    category: "legal",
+    subcategory: "ko-court-name",
+    pattern:
+      /(?<![가-힣])(?:(?:서울중앙|서울남부|서울북부|서울동부|서울서부|서울|수원|인천|대전|대구|부산|광주|울산|춘천|전주|청주|제주|창원|의정부|고양)(?:지방법원|고등법원|가정법원|행정법원)|대법원|특허법원|헌법재판소)(?![가-힣])/g,
+    levels: ["standard", "paranoid"],
+    languages: ["ko"],
+    description:
+      "Korean court name with optional region prefix (서울중앙지방법원, 대법원, 특허법원, 헌법재판소, ...)",
+  },
+  {
+    id: "legal.ko-statute-ref",
+    category: "legal",
+    subcategory: "ko-statute-ref",
+    pattern:
+      /(?:(?:민법|상법|형법|헌법|민사소송법|형사소송법|행정소송법|특허법|저작권법|개인정보\s*보호법|정보통신망법|근로기준법|상표법|부정경쟁방지법|독점규제법|공정거래법|법률)\s+)?제\d+(?:조(?:\s*(?:의\d+)?(?:\s*제\d+항)?(?:\s*제\d+호)?)?|호)/g,
+    levels: ["standard", "paranoid"],
+    languages: ["ko"],
+    description:
+      "Korean statute reference: optional law name + 제N조 (with optional 항/호) or 법률 제N호",
+  },
+  {
+    id: "legal.en-case-citation",
+    category: "legal",
+    subcategory: "en-case-citation",
+    pattern:
+      /\d{1,4}\s+(?:F\.(?:2d|3d|4th)|F\.\s*Supp\.?\s*(?:2d|3d)?|U\.S\.|S\.\s*Ct\.|L\.\s*Ed\.?\s*2d?|So\.\s*(?:2d|3d)?|N\.(?:E|W|Y|J)\.\s*(?:2d|3d)?|A\.\s*(?:2d|3d)?|P\.\s*(?:2d|3d)?|Cal\.\s*(?:App\.?\s*)?(?:2d|3d|4th|5th)?)\s+\d{1,5}/g,
+    levels: ["standard", "paranoid"],
+    languages: ["en"],
+    description:
+      "English case citation with reporter abbreviation (F.3d, U.S., S. Ct., etc.)",
+  },
+  {
+    id: "legal.en-statute-ref",
+    category: "legal",
+    subcategory: "en-statute-ref",
+    pattern:
+      /(?:(?:\d{1,3}\s+)?U\.S\.C\.?\s*§\s*\d+(?:\.\d+)?|Section\s+\d+(?:\.\d+)?(?:\s*\([a-z]\))?)/g,
+    levels: ["standard", "paranoid"],
+    languages: ["en"],
+    description:
+      "English statute reference: 'Section N' or 'N U.S.C. § M' forms",
+  },
+  {
+    id: "legal.legal-context",
+    category: "legal",
+    subcategory: "legal-context",
+    pattern:
+      /(?<=(?:사건번호|사건|Case\s+No|Court|Docket\s+No|법원)\s*[:：.]\s*).{3,60}?(?=$|\n|[;,])/g,
+    levels: ["standard", "paranoid"],
+    languages: ["ko", "en"],
+    description:
+      "Value following a legal label (사건번호:/Case No.:/Court:/Docket No.:), captures up to first delimiter",
+  },
+] as const satisfies readonly RegexRule[];
+```
+
+### 13.4 Per-rule deep dive
+
+#### 13.4.1 `legal.ko-case-number`
+
+**Pattern:** `(?<!\d)(?:19|20)\d{2}[가-힣]{1,3}\d{1,6}(?!\d)`
+
+**Structure.** Korean case numbers are `{year}{type}{docket}` with no separators:
+- Year: 4 digits (19xx/20xx bound)
+- Type: 1–3 Hangul syllables identifying the case type (가합 = civil joint, 나 = appeal, 다 = cassation, 노 = labor, 도 = criminal, 카 = IP, 허 = patent, 구합 = old-style, 재 = retrial, etc.)
+- Docket: 1–6 digits
+
+**Matches:**
+- `"2024가합12345"` → `2024가합12345`
+- `"2023나67890"` → `2023나67890`
+- `"2024노1234"` → `2024노1234`
+- `"2024도5678"` → `2024도5678`
+
+**Rejects:**
+- `"2024년"` — `년` is followed by nothing or non-digit, but the regex requires digits after the Hangul. `2024년` has no trailing digits. Wait — `[가-힣]{1,3}` matches `년`, but then `\d{1,6}` expects digits. If there are no digits after `년`, the regex backtracks and fails. No match. Good.
+- `"9999가합12345"` — year 9999, `(?:19|20)` rejects
+- `"2024AB12345"` — `AB` is not Hangul, no match
+
+**ReDoS:** benign. Each segment is fixed-length or bounded.
+
+#### 13.4.2 `legal.ko-court-name`
+
+**Pattern:** see § 13.3. Two branches: `{region}{court-type}` or standalone courts.
+
+**Region list:** 20 Korean regions covering major courts. The alternation puts longer forms first (서울중앙 before 서울) to prevent premature matching.
+
+**Court type suffix list:** 지방법원 (district), 고등법원 (high), 가정법원 (family), 행정법원 (administrative).
+
+**Standalone courts:** 대법원 (Supreme Court), 특허법원 (Patent Court), 헌법재판소 (Constitutional Court).
+
+**Matches:**
+- `"서울중앙지방법원"` → full match
+- `"대법원"` → `대법원`
+- `"서울고등법원"` → full match
+- `"수원지방법원"` → full match
+- `"헌법재판소"` → full match
+
+**Rejects:**
+- `"법원"` alone — no region prefix for the compound branch, no standalone match
+- `"동경지방법원"` (Tokyo) — `동경` not in region list, no match
+
+**Level rationale:** Standard + Paranoid. Court names in contracts are contextually important but not always redaction targets.
+
+**ReDoS:** benign. The alternation is disjoint prefix-wise.
+
+#### 13.4.3 `legal.ko-statute-ref`
+
+**Pattern:** see § 13.3. Matches `제N조` with optional `항` / `호` modifiers, optionally preceded by a law name.
+
+**Law name list.** 17 common Korean law names. The alternation puts longer forms first (개인정보 보호법 before shorter). The `\s*` inside `개인정보\s*보호법` accommodates the common form with or without space.
+
+**Hierarchical references.** `제15조 제2항 제3호` — the regex matches `제15조 제2항 제3호` as a single capture. The optional chain `(?:\s*제\d+항)?(?:\s*제\d+호)?` appends each level.
+
+**Matches:**
+- `"제15조"` → `제15조`
+- `"제15조 제2항"` → `제15조 제2항`
+- `"민법 제750조"` → `민법 제750조`
+- `"법률 제1234호"` → `법률 제1234호`
+- `"개인정보 보호법 제17조"` → full match
+- `"제15조의2"` → `제15조의2` (via `의\d+` branch)
+
+**Rejects:**
+- `"제"` alone — no digits
+- `"15조"` — no `제` prefix, no match
+
+**ReDoS:** benign.
+
+#### 13.4.4 `legal.en-case-citation`
+
+**Pattern:** see § 13.3. Matches `{volume} {reporter} {page}` format.
+
+**Reporter abbreviation list.** Federal: F.2d/3d/4th, F. Supp., U.S., S. Ct., L. Ed. 2d. State: So.2d/3d (Southern), N.E./N.W./N.Y./N.J. (regional), A.2d/3d (Atlantic), P.2d/3d (Pacific), Cal. App. (California).
+
+**Matches:**
+- `"123 F.3d 456"` → `123 F.3d 456`
+- `"456 U.S. 789"` → `456 U.S. 789`
+- `"789 S. Ct. 123"` → `789 S. Ct. 123`
+- `"100 Cal. App. 4th 200"` → full match
+
+**Rejects:**
+- `"F.3d"` alone — no volume/page digits
+- `"123 456"` — no reporter abbreviation
+- `"page 123"` — no reporter pattern
+
+**ReDoS:** benign. The reporter alternation branches on distinct leading characters.
+
+#### 13.4.5 `legal.en-statute-ref`
+
+**Pattern:** see § 13.3. Two branches: `N U.S.C. § M` and `Section N`.
+
+**Section sign handling.** `§` (U+00A7) is matched literally. `normalizeForMatching` does NOT fold it.
+
+**Matches:**
+- `"Section 230"` → `Section 230`
+- `"17 U.S.C. § 101"` → `17 U.S.C. § 101`
+- `"42 U.S.C. § 1983"` → `42 U.S.C. § 1983`
+- `"Section 10.1(a)"` → `Section 10.1(a)`
+
+**Rejects:**
+- `"Section"` alone — no digits
+- `"§ 101"` without U.S.C. — no match on the USC branch, but also no match on the Section branch since `§` is not `Section`
+- `"U.S.C."` alone — no match
+
+**ReDoS:** benign.
+
+#### 13.4.6 `legal.legal-context`
+
+**Pattern:** `(?<=(?:사건번호|사건|Case\s+No|Court|Docket\s+No|법원)\s*[:：.]\s*).{3,60}?(?=$|\n|[;,])`
+
+**Variable-length lookbehind.** Same caveat as § 9.4.10, § 10.4.8, § 11.4.11. ES2018+, bounded.
+
+**Value capture `.{3,60}?`** — non-greedy, 3–60 chars, terminated by end-of-line/comma/semicolon. This is generic enough to catch case numbers, court names, and docket numbers that appear after a label.
+
+**Matches:**
+- `"사건번호: 2024가합12345"` → `2024가합12345`
+- `"Case No.: 123-CV-456"` → `123-CV-456`
+- `"Court: Seoul Central District Court"` → `Seoul Central District Court`
+
+**Interaction with other legal rules.** The context-captured value often also matches `ko-case-number` or `ko-court-name`. Dedup collapses.
+
+**Rejects:**
+- `"사건번호"` alone — no colon/value
+- Value longer than 60 chars — regex caps at 60 to prevent runaway captures
+
+**ReDoS:** bounded by the 60-char cap and the non-greedy quantifier.
+
+### 13.5 Test file specification (`rules/legal.test.ts`)
+
+Create `src/detection/rules/legal.test.ts`. Six rules × 13 tests = **78 tests minimum**. Target ~85 tests.
+
+**Organization:** same as § 9.5. One registry-sanity describe block, then one describe per rule. Shared `findRule` / `matchOne` helpers.
+
+**Korean court alternation-order test.** `"서울중앙지방법원"` must match as a single entity, not split into `"서울"` + partial:
+
+```typescript
+it("matches 서울중앙지방법원 as one entity (not 서울 alone)", () => {
+  const result = matchOne("ko-court-name", "서울중앙지방법원에서");
+  expect(result).toEqual(["서울중앙지방법원"]);
+});
+```
+
+**Hierarchical statute test.** `"제15조 제2항 제3호"` must match as a single span:
+
+```typescript
+it("matches hierarchical reference 제N조 제N항 제N호", () => {
+  const result = matchOne("ko-statute-ref", "제15조 제2항 제3호에 따라");
+  expect(result).toEqual(["제15조 제2항 제3호"]);
+});
+```
+
+### 13.6 Registry integration
+
+```typescript
+// Before (§ 11 state):
+export const ALL_REGEX_RULES: readonly RegexRule[] = [
+  ...IDENTIFIERS,
+  ...FINANCIAL,
+  ...TEMPORAL,
+  ...ENTITIES,
+  // Phase 1 follow-up commits append:
+  //   ...LEGAL     (§ 13)
+] as const;
+
+// After (§ 13 commit):
+import { LEGAL } from "../rules/legal.js";
+// ...
+export const ALL_REGEX_RULES: readonly RegexRule[] = [
+  ...IDENTIFIERS,
+  ...FINANCIAL,
+  ...TEMPORAL,
+  ...ENTITIES,
+  ...LEGAL,
+] as const;
+```
+
+This is the FINAL state of `ALL_REGEX_RULES` — all 5 regex categories (identifiers: 8 + financial: 10 + temporal: 8 + entities: 12 + legal: 6 = **44 total regex rules**).
+
+### 13.7 Acceptance checklist for § 13
+
+- [ ] `src/detection/rules/legal.ts` exists and exports `LEGAL: readonly RegexRule[]`
+- [ ] `LEGAL.length === 6`
+- [ ] Every rule's id starts with `"legal."`
+- [ ] Every rule has `category: "legal"`
+- [ ] Every rule's pattern has the `g` flag
+- [ ] No post-filters in this category
+- [ ] Korean court name alternation order: `서울중앙` before `서울` (same pattern as § 11.4.4 `유한책임회사` before `유한회사`)
+- [ ] Korean statute hierarchy test passes (`제15조 제2항 제3호` as single match)
+- [ ] `rules/legal.test.ts` has ≥ 78 tests, all passing
+- [ ] Every describe block earns ★★★ on the quality rubric
+- [ ] Registry update: `ALL_REGEX_RULES` includes `...LEGAL` after `...ENTITIES` — this is the final regex category, no more `// Phase 1 follow-up` comments
+- [ ] Registry verification passes (44 total regex rules, all ids unique, all patterns have `g` flag)
+- [ ] `bun run test src/detection/detect-pii.characterization.test.ts` still passes byte-for-byte
+- [ ] `bun run test` overall test count increases by ≥ 78
+- [ ] ReDoS guard fuzz passes for all 6 legal rules
+- [ ] No new npm dependencies
+- [ ] No edits to any Phase 0 file other than `registry.ts`
+
+---
+
+## 14. `rules/heuristics/` — 4 heuristics + 2 role blacklists
+
+Four heuristic detection rules plus two role-blacklist data files. **Heuristics have a DIFFERENT SHAPE from regex rules** — they export a `detect(text, context)` function that consumes `HeuristicContext` (with `structuralDefinitions`, `priorCandidates`, `documentLanguage`) and returns `readonly Candidate[]` with confidence < 1.0. They run through `runHeuristicPhase` (see § 7.7).
+
+Before writing any heuristic code, re-read `docs/RULES_GUIDE.md` § 6 (Writing a heuristic), especially § 6.2 (required behaviors). This section builds on that writeup; where they disagree, RULES_GUIDE § 6 wins.
+
+### 14.1 Category overview
+
+| # | id | Languages | Levels | What it detects |
+|---|---|---|---|---|
+| 1 | `heuristics.capitalization-cluster` | `["en"]` | S, P | 2+ consecutive capitalized words as probable entity name |
+| 2 | `heuristics.quoted-term` | `["ko", "en"]` | S, P | Quoted text in `"X"`, `'X'`, `「X」`, `『X』` forms |
+| 3 | `heuristics.repeatability` | `["ko", "en"]` | P | High-frequency tokens (≥ 3 occurrences) as probable entity names |
+| 4 | `heuristics.email-domain-inference` | `["universal"]` | P | Domain part of email → inferred company name (legal@acme-corp.com → "Acme Corp") |
+
+**Plus 2 data files:**
+
+| File | Content |
+|---|---|
+| `rules/role-blacklist-ko.ts` | 50 Korean role words (당사자, 갑, 을, 본인, 원고, 피고, 의뢰인, ...) |
+| `rules/role-blacklist-en.ts` | 50 English role words (party, plaintiff, defendant, client, licensee, ...) |
+
+### 14.2 Heuristic shape and required behaviors (read before writing)
+
+Every heuristic satisfies the Phase 0 `Heuristic` interface:
+
+```typescript
+export interface Heuristic {
+  readonly id: string;
+  readonly category: "heuristics";
+  readonly subcategory: string;
+  readonly languages: readonly Language[];
+  readonly levels: readonly Level[];
+  readonly description: string;
+  detect(normalizedText: string, context: HeuristicContext): readonly Candidate[];
+}
+```
+
+**Five required behaviors** (per RULES_GUIDE § 6.2 — violations fail the acceptance checklist):
+
+1. **Consume `context.structuralDefinitions`.** If the candidate text matches a structural definition's `label`, skip it. This is the D9 policy: defined terms ("the Buyer", "갑") are unchecked by default and must not be rediscovered as literals by a heuristic.
+
+2. **Consume `context.priorCandidates`.** If the candidate text is identical to (or a substring of) a prior candidate with higher confidence, skip it. Double-emission wastes the user's review time and inflates the candidate count.
+
+3. **Apply the role-word blacklist.** Import the blacklist from `role-blacklist-ko.ts` or `role-blacklist-en.ts` (depending on language). Tokens like `당사자`, `party`, `plaintiff`, `claimant` are repeated heavily in legal documents but are NOT sensitive. Every heuristic MUST filter them BEFORE emitting candidates.
+
+4. **Assign confidence < 1.0.** Regex rules emit 1.0 (pattern match = certain). Heuristics are uncertain by definition. Use 0.5–0.9 based on signal strength.
+
+5. **Return original bytes, not normalized bytes.** The `detect()` function receives the NORMALIZED text. To recover original bytes for `Candidate.text`, heuristics that need byte recovery must call `normalizeForMatching` on the original text themselves and use the offset map. However, for Phase 1 heuristics operating on the normalized text directly (capitalization-cluster, quoted-term), the normalized text IS the original text after fullwidth folding — so `Candidate.text = normalizedMatch` is acceptable when the normalization is lossless (ASCII letters, quotes).
+
+### 14.3 Role blacklist data files
+
+#### `rules/role-blacklist-ko.ts`
+
+Put this EXACTLY into `src/detection/rules/role-blacklist-ko.ts`:
+
+```typescript
+/**
+ * Korean role-word blacklist — 50 tokens that appear heavily in legal
+ * documents but are NOT sensitive entity names.
+ *
+ * Consumed by every Korean-language heuristic via
+ * `ROLE_BLACKLIST_KO.has(token)`. Heuristics MUST check this blacklist
+ * before emitting a candidate.
+ *
+ * Maintenance: add words observed as false positives during heuristic
+ * tuning (RULES_GUIDE § 6.4). Do NOT add entity names (Samsung, 삼성) —
+ * that would be the § 12.2 anti-pattern.
+ */
+
+export const ROLE_BLACKLIST_KO: ReadonlySet<string> = new Set([
+  "당사자", "갑", "을", "병", "정", "본인", "상대방",
+  "원고", "피고", "신청인", "피신청인", "항소인", "피항소인",
+  "의뢰인", "고객", "회사", "법인", "개인", "대리인",
+  "위임자", "수임자", "임차인", "임대인", "매수인", "매도인",
+  "채권자", "채무자", "보증인", "피보증인", "수탁자", "위탁자",
+  "양도인", "양수인", "발주자", "수급인", "하도급인",
+  "사용자", "근로자", "피용자", "고용주",
+  "저작권자", "이용자", "실시권자", "특허권자",
+  "대표", "대표이사", "이사", "감사", "주주",
+  "당사", "귀사", "귀하",
+]) as ReadonlySet<string>;
+```
+
+#### `rules/role-blacklist-en.ts`
+
+Put this EXACTLY into `src/detection/rules/role-blacklist-en.ts`:
+
+```typescript
+/**
+ * English role-word blacklist — 50 tokens that appear heavily in legal
+ * documents but are NOT sensitive entity names.
+ *
+ * All entries are LOWERCASE. Heuristics compare against this set after
+ * lowering the candidate: `ROLE_BLACKLIST_EN.has(candidate.toLowerCase())`.
+ *
+ * Consumed by every English-language heuristic. Same maintenance rules
+ * as the Korean blacklist.
+ */
+
+export const ROLE_BLACKLIST_EN: ReadonlySet<string> = new Set([
+  "party", "parties", "plaintiff", "defendant",
+  "claimant", "respondent", "appellant", "appellee",
+  "client", "customer", "company", "corporation",
+  "individual", "person", "entity", "agent",
+  "representative", "attorney", "counsel", "lawyer",
+  "licensor", "licensee", "franchisor", "franchisee",
+  "lessor", "lessee", "landlord", "tenant",
+  "buyer", "seller", "purchaser", "vendor",
+  "creditor", "debtor", "guarantor", "surety",
+  "assignor", "assignee", "transferor", "transferee",
+  "employer", "employee", "contractor", "subcontractor",
+  "principal", "trustee", "beneficiary", "fiduciary",
+  "discloser", "recipient", "provider", "user",
+  "director", "officer",
+]) as ReadonlySet<string>;
+```
+
+#### Role blacklist test files
+
+Create `src/detection/rules/role-blacklist-ko.test.ts` and `src/detection/rules/role-blacklist-en.test.ts`. Each has ~5 tests:
+
+1. Exports a `ReadonlySet<string>` with exactly 50 entries
+2. Contains the anchor words (`"당사자"` / `"party"`)
+3. Does NOT contain empty strings
+4. Every entry is a non-empty string
+5. Korean blacklist uses Hangul; English blacklist uses lowercase ASCII
+
+### 14.4 Heuristic implementations
+
+#### 14.4.1 `heuristics/capitalization-cluster.ts`
+
+**Purpose.** Detect 2+ consecutive capitalized words as a probable entity name (English only). This is the simplest and highest-recall heuristic — most real entity names in English contracts appear as capitalized word clusters.
+
+**Full file content.** Put this EXACTLY into `src/detection/rules/heuristics/capitalization-cluster.ts`:
+
+```typescript
+/**
+ * Heuristic: English capitalization cluster.
+ *
+ * Detects 2+ consecutive capitalized words as probable entity names.
+ * Examples: "John Smith", "Acme Holdings Group", "New York City".
+ *
+ * Required behaviors (per RULES_GUIDE § 6.2):
+ *   1. D9 skip — defined labels are excluded
+ *   2. Prior candidate skip — already-found strings excluded
+ *   3. Role blacklist — generic legal roles excluded
+ *   4. Confidence 0.7 (moderate — caps clusters are common in English prose)
+ *   5. Returns normalized text as candidate.text (ASCII letters are
+ *      normalized losslessly, so normalized = original for this heuristic)
+ *
+ * See docs/phases/phase-1-rulebook.md § 14.4.1
+ */
+
+import type {
+  Candidate,
+  Heuristic,
+  HeuristicContext,
+} from "../../_framework/types.js";
+import { ROLE_BLACKLIST_EN } from "../role-blacklist-en.js";
+
+export const CAPITALIZATION_CLUSTER: Heuristic = {
+  id: "heuristics.capitalization-cluster",
+  category: "heuristics",
+  subcategory: "capitalization-cluster",
+  languages: ["en"],
+  levels: ["standard", "paranoid"],
+  description:
+    "English 2+ consecutive capitalized words as probable entity name (D9-aware, role-blacklist-filtered)",
+  detect(text: string, ctx: HeuristicContext): readonly Candidate[] {
+    const definedLabels = new Set(
+      ctx.structuralDefinitions.map((d) => d.label),
+    );
+    const priorTexts = new Set(ctx.priorCandidates.map((c) => c.text));
+    const pattern = /(?<![A-Za-z])[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,4}(?![A-Za-z])/g;
+    const out: Candidate[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = pattern.exec(text)) !== null) {
+      const candidate = m[0]!;
+      if (definedLabels.has(candidate)) continue;
+      if (priorTexts.has(candidate)) continue;
+      if (ROLE_BLACKLIST_EN.has(candidate.toLowerCase())) continue;
+      // Check individual words against blacklist too
+      const words = candidate.split(/\s+/);
+      if (words.some((w) => ROLE_BLACKLIST_EN.has(w.toLowerCase()))) continue;
+      out.push({
+        text: candidate,
+        ruleId: "heuristics.capitalization-cluster",
+        confidence: 0.7,
+      });
+    }
+    return out;
+  },
+};
+```
+
+**Confidence 0.7 rationale.** Caps clusters are common in English but not all are entities (e.g., "New York Times" is an entity, but "Dear Sir" is not). 0.7 reflects moderate certainty.
+
+**D9 skip example.** If structural parsers found `{label: "Buyer", referent: "ABC Corporation"}`, the string "Buyer" is in `definedLabels`. A capitalization cluster "The Buyer" would NOT be skipped because "The Buyer" ≠ "Buyer". But if the full label were "The Buyer", it would be skipped. This is correct behavior — the D9 policy is label-exact.
+
+**Matches / rejects:** see RULES_GUIDE § 6.3 for the authoritative example.
+
+#### 14.4.2 `heuristics/quoted-term.ts`
+
+**Purpose.** Detect text enclosed in quotes as a probable defined term or entity reference. Covers `"X"`, `'X'`, `「X」`, `『X』` in both Korean and English.
+
+**Full file content.** Put this EXACTLY into `src/detection/rules/heuristics/quoted-term.ts`:
+
+```typescript
+/**
+ * Heuristic: quoted term detection.
+ *
+ * Detects text enclosed in quote characters as a probable entity or
+ * defined term: "X", 'X', 「X」, 『X』.
+ *
+ * Note: normalizeForMatching folds smart quotes to straight quotes and
+ * corner brackets to straight double quotes. So by the time the heuristic
+ * sees the text, all these forms are plain `"X"` or `'X'`. The regex
+ * below only needs to match ASCII quotes.
+ *
+ * Confidence: 0.6 (lower than capitalization — many quoted terms in
+ * contracts are section titles or clause references, not entities).
+ */
+
+import type {
+  Candidate,
+  Heuristic,
+  HeuristicContext,
+} from "../../_framework/types.js";
+import { ROLE_BLACKLIST_EN } from "../role-blacklist-en.js";
+import { ROLE_BLACKLIST_KO } from "../role-blacklist-ko.js";
+
+export const QUOTED_TERM: Heuristic = {
+  id: "heuristics.quoted-term",
+  category: "heuristics",
+  subcategory: "quoted-term",
+  languages: ["ko", "en"],
+  levels: ["standard", "paranoid"],
+  description:
+    "Quoted text in double or single quotes as probable entity or defined-term reference",
+  detect(text: string, ctx: HeuristicContext): readonly Candidate[] {
+    const definedLabels = new Set(
+      ctx.structuralDefinitions.map((d) => d.label),
+    );
+    const priorTexts = new Set(ctx.priorCandidates.map((c) => c.text));
+    // Match text in double or single quotes (2-50 chars).
+    const pattern = /["']([^"']{2,50})["']/g;
+    const out: Candidate[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = pattern.exec(text)) !== null) {
+      const inner = m[1]!;
+      if (definedLabels.has(inner)) continue;
+      if (priorTexts.has(inner)) continue;
+      // Check both blacklists (bilingual rule)
+      if (ROLE_BLACKLIST_EN.has(inner.toLowerCase())) continue;
+      if (ROLE_BLACKLIST_KO.has(inner)) continue;
+      out.push({
+        text: inner,
+        ruleId: "heuristics.quoted-term",
+        confidence: 0.6,
+      });
+    }
+    return out;
+  },
+};
+```
+
+**Why `inner` not the full quoted string.** The redaction target is the content INSIDE the quotes, not the quotes themselves. Redacting `"ABC Corporation"` should produce `"[REDACTED]"`, not `[REDACTED]`. So `Candidate.text = inner` (the unquoted content).
+
+**Confidence 0.6 rationale.** Many quoted terms in contracts are clause titles (`"Section 5"`, `"Article III"`) or defined-term LABELS that the definition-section parser already captured. Lower confidence encourages the user to review before redacting.
+
+#### 14.4.3 `heuristics/repeatability.ts`
+
+**Purpose.** Detect high-frequency tokens (≥ 3 occurrences in the document) that look like entity names. Entity names are repeated — "ABC Corporation" appears 10+ times in a contract; common words like "the" also appear often but are filtered by the pattern shape (requires capitalization) and the role blacklist.
+
+**Full file content.** Put this EXACTLY into `src/detection/rules/heuristics/repeatability.ts`:
+
+```typescript
+/**
+ * Heuristic: repeatability-based entity detection.
+ *
+ * Counts capitalized tokens (single or multi-word) and flags those that
+ * appear ≥ MIN_FREQUENCY times as probable entity names. Entities are
+ * repeated in contracts; common words are filtered by the capitalization
+ * requirement and role blacklist.
+ *
+ * Operates on both Korean and English text. Korean tokens are 2-6
+ * Hangul syllable sequences; English tokens are 1-4 capitalized words.
+ *
+ * Confidence: 0.5 (lowest — frequency is a weak signal on its own;
+ * combined with other heuristics via the heuristic phase union, it
+ * adds recall without dominating precision).
+ */
+
+import type {
+  Candidate,
+  Heuristic,
+  HeuristicContext,
+} from "../../_framework/types.js";
+import { ROLE_BLACKLIST_EN } from "../role-blacklist-en.js";
+import { ROLE_BLACKLIST_KO } from "../role-blacklist-ko.js";
+
+/** Minimum number of occurrences to qualify as a repeatable entity. */
+const MIN_FREQUENCY = 3;
+
+export const REPEATABILITY: Heuristic = {
+  id: "heuristics.repeatability",
+  category: "heuristics",
+  subcategory: "repeatability",
+  languages: ["ko", "en"],
+  levels: ["paranoid"],
+  description:
+    "High-frequency capitalized or Hangul tokens (≥ 3 occurrences) as probable entity names",
+  detect(text: string, ctx: HeuristicContext): readonly Candidate[] {
+    const definedLabels = new Set(
+      ctx.structuralDefinitions.map((d) => d.label),
+    );
+    const priorTexts = new Set(ctx.priorCandidates.map((c) => c.text));
+
+    // Count candidate tokens.
+    const counts = new Map<string, number>();
+
+    // English: 1-4 capitalized words
+    const enPattern =
+      /(?<![A-Za-z])[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}(?![A-Za-z])/g;
+    let m: RegExpExecArray | null;
+    while ((m = enPattern.exec(text)) !== null) {
+      const token = m[0]!;
+      counts.set(token, (counts.get(token) ?? 0) + 1);
+    }
+
+    // Korean: 2-6 Hangul syllable tokens (word boundaries via non-Hangul)
+    const koPattern = /(?<![가-힣])[가-힣]{2,6}(?![가-힣])/g;
+    while ((m = koPattern.exec(text)) !== null) {
+      const token = m[0]!;
+      counts.set(token, (counts.get(token) ?? 0) + 1);
+    }
+
+    // Filter and emit.
+    const out: Candidate[] = [];
+    for (const [token, count] of counts) {
+      if (count < MIN_FREQUENCY) continue;
+      if (definedLabels.has(token)) continue;
+      if (priorTexts.has(token)) continue;
+      if (ROLE_BLACKLIST_EN.has(token.toLowerCase())) continue;
+      if (ROLE_BLACKLIST_KO.has(token)) continue;
+      out.push({
+        text: token,
+        ruleId: "heuristics.repeatability",
+        confidence: 0.5,
+      });
+    }
+    return out;
+  },
+};
+```
+
+**Paranoid-only level.** Frequency-based detection has a high false positive rate on long contracts where common Korean compound words (계약, 당사자, 조건) also appear ≥ 3 times. The role blacklist catches most, but not all. Paranoid-only tier limits exposure.
+
+**Confidence 0.5 rationale.** Lowest among the 4 heuristics. Frequency alone is a weak signal — "ABC Corporation" at 10 occurrences is probably an entity, but "New York" at 3 occurrences might just be a location reference. Combined with capitalization-cluster and quoted-term, the recall improves without dominating precision.
+
+#### 14.4.4 `heuristics/email-domain-inference.ts`
+
+**Purpose.** Infer a probable company name from the domain part of an email address already detected by the identifiers.email rule. `legal@acme-corp.com` → suggest "Acme Corp" as an entity candidate.
+
+**Full file content.** Put this EXACTLY into `src/detection/rules/heuristics/email-domain-inference.ts`:
+
+```typescript
+/**
+ * Heuristic: email domain → company name inference.
+ *
+ * When identifiers.email has already flagged "legal@acme-corp.com" as a
+ * prior candidate, this heuristic extracts the domain "acme-corp.com",
+ * strips the TLD, converts hyphens to spaces, and title-cases the result
+ * to suggest "Acme Corp" as a candidate entity name.
+ *
+ * This is the ONLY heuristic that primarily operates on priorCandidates
+ * rather than the raw text. It reads emails from priorCandidates and
+ * derives new candidates from them.
+ *
+ * Confidence: 0.8 (high — email domains are a strong signal for company
+ * names, especially corporate emails like legal@, ceo@, info@).
+ */
+
+import type {
+  Candidate,
+  Heuristic,
+  HeuristicContext,
+} from "../../_framework/types.js";
+import { ROLE_BLACKLIST_EN } from "../role-blacklist-en.js";
+
+/** Common TLDs to strip. */
+const TLDS = new Set([
+  "com", "org", "net", "co", "io", "kr", "jp", "cn", "uk", "de",
+  "fr", "au", "ca", "in", "biz", "info", "us", "eu",
+]);
+
+/** Common email prefixes that signal corporate (not personal) emails. */
+const CORPORATE_PREFIXES = new Set([
+  "legal", "ceo", "cfo", "coo", "cto", "info", "hr", "admin",
+  "office", "support", "contact", "sales", "billing", "accounts",
+]);
+
+/** Title-case a word. */
+function titleCase(s: string): string {
+  if (s.length === 0) return s;
+  return s[0]!.toUpperCase() + s.slice(1).toLowerCase();
+}
+
+export const EMAIL_DOMAIN_INFERENCE: Heuristic = {
+  id: "heuristics.email-domain-inference",
+  category: "heuristics",
+  subcategory: "email-domain-inference",
+  languages: ["universal"],
+  levels: ["paranoid"],
+  description:
+    "Infer company name from email domain (legal@acme-corp.com → 'Acme Corp')",
+  detect(_text: string, ctx: HeuristicContext): readonly Candidate[] {
+    const definedLabels = new Set(
+      ctx.structuralDefinitions.map((d) => d.label),
+    );
+    const priorTexts = new Set(ctx.priorCandidates.map((c) => c.text));
+
+    const out: Candidate[] = [];
+    const seen = new Set<string>();
+
+    for (const prior of ctx.priorCandidates) {
+      if (!prior.ruleId.startsWith("identifiers.email")) continue;
+      const email = prior.text;
+      const atIdx = email.indexOf("@");
+      if (atIdx < 0) continue;
+
+      const localPart = email.slice(0, atIdx).toLowerCase();
+      const domain = email.slice(atIdx + 1);
+      const parts = domain.split(".");
+      if (parts.length < 2) continue;
+
+      // Strip TLD (and secondary TLD for .co.kr style).
+      let meaningful = parts.slice(0);
+      while (
+        meaningful.length > 1 &&
+        TLDS.has(meaningful[meaningful.length - 1]!)
+      ) {
+        meaningful.pop();
+      }
+      if (meaningful.length === 0) continue;
+
+      // Convert hyphens and dots to spaces, title-case.
+      const inferred = meaningful
+        .join(" ")
+        .split(/[-.]/)
+        .map(titleCase)
+        .join(" ")
+        .trim();
+
+      if (inferred.length < 2) continue;
+      if (definedLabels.has(inferred)) continue;
+      if (priorTexts.has(inferred)) continue;
+      if (ROLE_BLACKLIST_EN.has(inferred.toLowerCase())) continue;
+      if (seen.has(inferred)) continue;
+      seen.add(inferred);
+
+      // Boost confidence for corporate prefixes.
+      const confidence = CORPORATE_PREFIXES.has(localPart) ? 0.8 : 0.6;
+
+      out.push({
+        text: inferred,
+        ruleId: "heuristics.email-domain-inference",
+        confidence,
+      });
+    }
+    return out;
+  },
+};
+```
+
+**Confidence split.** Corporate-prefix emails (legal@, ceo@) get 0.8 — high confidence because the email local part is a generic role, making the domain almost certainly a company. Personal-prefix emails (john.smith@acme-corp.com) get 0.6 — the domain is still informative but less certain that the inferred name is the exact company name.
+
+**TLD stripping.** `acme-corp.com` → strip `com` → `acme-corp` → split on hyphens → `Acme Corp`. `acme-corp.co.kr` → strip `kr`, strip `co` → `acme-corp` → `Acme Corp`.
+
+### 14.5 `heuristics/index.ts` — aggregator
+
+**Full file content.** Put this EXACTLY into `src/detection/rules/heuristics/index.ts` (replacing the empty-array scaffold from § 7.9):
+
+```typescript
+/**
+ * Heuristics aggregator.
+ *
+ * Re-exports every Heuristic in this directory as a single
+ * `ALL_HEURISTICS` array. Consumed by `_framework/registry.ts`.
+ *
+ * Heuristic order: capitalization-cluster first (highest confidence
+ * among the generic heuristics), then quoted-term, repeatability,
+ * email-domain-inference. Order matters because later heuristics see
+ * earlier heuristics' candidates in the same phase — but since all
+ * heuristics receive the same HeuristicContext (snapshot before the
+ * phase starts), cross-heuristic ordering is actually observationally
+ * irrelevant. The order is cosmetic for determinism only.
+ */
+
+import type { Heuristic } from "../../_framework/types.js";
+
+import { CAPITALIZATION_CLUSTER } from "./capitalization-cluster.js";
+import { EMAIL_DOMAIN_INFERENCE } from "./email-domain-inference.js";
+import { QUOTED_TERM } from "./quoted-term.js";
+import { REPEATABILITY } from "./repeatability.js";
+
+export const ALL_HEURISTICS: readonly Heuristic[] = [
+  CAPITALIZATION_CLUSTER,
+  QUOTED_TERM,
+  REPEATABILITY,
+  EMAIL_DOMAIN_INFERENCE,
+] as const;
+```
+
+### 14.6 Test file specifications
+
+Create one test file per heuristic:
+
+- `src/detection/rules/heuristics/capitalization-cluster.test.ts`
+- `src/detection/rules/heuristics/quoted-term.test.ts`
+- `src/detection/rules/heuristics/repeatability.test.ts`
+- `src/detection/rules/heuristics/email-domain-inference.test.ts`
+
+Each heuristic test file has at least **15 tests** (the 13-minimum from RULES_GUIDE § 8.1 plus 2 extra for D9-skip and prior-candidate-skip required behaviors):
+
+1. **3 positive** — input with entity-shaped spans returns candidates
+2. **3 variant** — whitespace, language, casing variants
+3. **3 reject** — input that should NOT produce candidates (all-lowercase, short tokens, etc.)
+4. **2 D9/prior** — structural definition label is skipped; prior candidate text is skipped
+5. **2 blacklist** — Korean blacklist word is skipped; English blacklist word is skipped
+6. **1 confidence** — returned confidence is < 1.0 and matches the expected value
+7. **1 ReDoS** — 10KB adversarial input, 100ms budget
+
+**Total per heuristic:** 15 tests. **Four heuristics × 15 = 60 tests minimum.** Target ~70 tests to cover edge cases (email-domain-inference TLD stripping, repeatability frequency threshold).
+
+**D9 skip test template:**
+
+```typescript
+it("skips candidates that match a structural definition label (D9)", () => {
+  const ctx: HeuristicContext = {
+    structuralDefinitions: [
+      { label: "John Smith", referent: "ABC Corp CEO", source: "party-declaration" },
+    ],
+    priorCandidates: [],
+    documentLanguage: "en",
+  };
+  const result = CAPITALIZATION_CLUSTER.detect(
+    "John Smith signed the agreement. John Smith approved it.",
+    ctx,
+  );
+  // "John Smith" is a defined label → must be skipped
+  expect(result.every((c) => c.text !== "John Smith")).toBe(true);
+});
+```
+
+**Prior-candidate skip test template:**
+
+```typescript
+it("skips candidates already in priorCandidates", () => {
+  const ctx: HeuristicContext = {
+    structuralDefinitions: [],
+    priorCandidates: [
+      { text: "Acme Corp", ruleId: "entities.en-corp-suffix", confidence: 1.0 },
+    ],
+    documentLanguage: "en",
+  };
+  const result = CAPITALIZATION_CLUSTER.detect(
+    "Acme Corp is a Delaware corporation. Acme Corp was founded in 2020.",
+    ctx,
+  );
+  expect(result.every((c) => c.text !== "Acme Corp")).toBe(true);
+});
+```
+
+**Email-domain-inference specific tests:**
+
+```typescript
+it("infers Acme Corp from legal@acme-corp.com", () => {
+  const ctx: HeuristicContext = {
+    structuralDefinitions: [],
+    priorCandidates: [
+      { text: "legal@acme-corp.com", ruleId: "identifiers.email", confidence: 1.0 },
+    ],
+    documentLanguage: "en",
+  };
+  const result = EMAIL_DOMAIN_INFERENCE.detect("", ctx);
+  expect(result).toHaveLength(1);
+  expect(result[0]!.text).toBe("Acme Corp");
+  expect(result[0]!.confidence).toBe(0.8); // corporate prefix "legal"
+});
+
+it("strips .co.kr TLD correctly", () => {
+  const ctx: HeuristicContext = {
+    structuralDefinitions: [],
+    priorCandidates: [
+      { text: "info@samsung.co.kr", ruleId: "identifiers.email", confidence: 1.0 },
+    ],
+    documentLanguage: "en",
+  };
+  const result = EMAIL_DOMAIN_INFERENCE.detect("", ctx);
+  expect(result).toHaveLength(1);
+  expect(result[0]!.text).toBe("Samsung");
+});
+```
+
+### 14.7 Registry integration
+
+Replace the empty-array scaffold at `src/detection/rules/heuristics/index.ts` (created in § 7.9) with the populated version from § 14.5. The import in `_framework/registry.ts` already exists from the § 7.9 runner-extension commit — no change needed to `registry.ts` itself:
+
+```typescript
+// Already in registry.ts from § 7.9:
+import { ALL_HEURISTICS as _HEURISTICS } from "../rules/heuristics/index.js";
+export const ALL_HEURISTICS: readonly Heuristic[] = _HEURISTICS;
+```
+
+After the § 14 commit, the `_HEURISTICS` import resolves to the populated array (4 heuristics) instead of the empty scaffold.
+
+### 14.8 Acceptance checklist for § 14
+
+- [ ] 4 heuristic files exist in `src/detection/rules/heuristics/`: `capitalization-cluster.ts`, `quoted-term.ts`, `repeatability.ts`, `email-domain-inference.ts`
+- [ ] `src/detection/rules/heuristics/index.ts` re-exports all 4 as `ALL_HEURISTICS` (no longer the empty-array scaffold)
+- [ ] `ALL_HEURISTICS.length === 4`
+- [ ] 2 role blacklist files exist: `src/detection/rules/role-blacklist-ko.ts`, `src/detection/rules/role-blacklist-en.ts`
+- [ ] Each blacklist exports a `ReadonlySet<string>` with exactly 50 entries
+- [ ] English blacklist entries are all lowercase
+- [ ] Every heuristic's `id` starts with `"heuristics."`
+- [ ] Every heuristic has `category: "heuristics"`
+- [ ] Every heuristic implements ALL 5 required behaviors from RULES_GUIDE § 6.2:
+  - [x] D9 skip — consumes `ctx.structuralDefinitions`
+  - [x] Prior candidate skip — consumes `ctx.priorCandidates`
+  - [x] Role blacklist — imports and checks the appropriate blacklist
+  - [x] Confidence < 1.0 — every emitted candidate has confidence ∈ [0.5, 0.9]
+  - [x] Returns candidate text (not empty, not undefined)
+- [ ] Confidence values per heuristic: capitalization-cluster=0.7, quoted-term=0.6, repeatability=0.5, email-domain-inference=0.8/0.6
+- [ ] Each heuristic test file has ≥ 15 tests, all passing (60 total minimum)
+- [ ] D9-skip tests exist for every heuristic (4 tests)
+- [ ] Prior-candidate-skip tests exist for every heuristic (4 tests)
+- [ ] Role-blacklist-filter tests exist for every heuristic (8 tests — 4 Korean + 4 English where applicable)
+- [ ] `bun run test src/detection/detect-pii.characterization.test.ts` still passes byte-for-byte
+- [ ] `bun run test` overall test count increases by ≥ 60 (heuristic tests) + 10 (blacklist tests) = ≥ 70
+- [ ] ReDoS guard fuzz passes for all 4 heuristics (100ms budget)
+- [ ] `runAllPhases` on the bilingual worst-case fixture now returns non-empty heuristic candidates alongside the regex candidates and structural definitions (smoke test)
+- [ ] No new npm dependencies
+- [ ] No edits to any Phase 0 file
+- [ ] No heuristic hardcodes entity names (RULES_GUIDE § 12.2)
+- [ ] No heuristic uses try/catch (fail-loud per § 3 invariant 16)
+
+---
+
 ## RESUME POINTER (for Claude in the next session)
 
-**Status as of 2026-04-12 v7 (session +3 second half):** § 0–12 written. § 13–18 pending.
+**Status as of 2026-04-12 v8 (session +4):** § 0–14 written (ALL rule specs complete). § 15–18 pending (meta/operational).
 
 ### What is already written (do NOT rewrite)
 
@@ -4543,20 +5516,24 @@ After the § 12 commit, the `_STRUCTURAL` import resolves to the populated array
 - **§ 10** — `rules/temporal.ts`: 8 regex rules (date-ko-full, date-ko-short, date-ko-range, date-iso, date-en, duration-ko, duration-en, date-context-ko); `isValidCalendarDate` helper with Date constructor roll-over detection for leap years and month-specific day counts; `validNumericDate` + `validEnglishDate` post-filters with `MONTH_NAME_TO_NUM` table; per-rule deep dive for each of the 8 rules; 104-test minimum plan with calendar-validity tests (Feb 30, Feb 29 leap/non-leap, April 31); `registry.ts` diff; 21-item acceptance checklist
 - **§ 11** — `rules/entities.ts`: 12 regex rules split by language — Korean (6): `ko-corp-prefix`, `ko-corp-suffix`, `ko-corp-abbrev` (matches both `(주)` and `㈜`), `ko-legal-other`, `ko-title-name`, `ko-honorific`; English (6): `en-corp-suffix`, `en-legal-form`, `en-title-person`, `en-exec-title`, `ko-identity-context`, `en-identity-context`; NO post-filters (context-free by design, role blacklist deferred to § 14); alternation-order notes for `대표이사` vs `대표`, `유한책임회사` vs `유한회사`, `Vice President` vs `President`; regex→heuristic contract tests for common-word false positives; 156-test minimum plan; `registry.ts` diff; 22-item acceptance checklist
 - **§ 12** — `rules/structural/` (5 parsers): `definition-section.ts` (English `"X" means Y` + Korean `"X"이라 함은 Y` + `이하 "X"` forms with referent trimming), `signature-block.ts` (last-20% tail scan for Name/Title/대표이사 patterns), `party-declaration.ts` (first-2000-char scan for `by and between ... (hereinafter 'X')` and Korean `(이하 '갑')` forms), `recitals.ts` (first-5000-char scan for WHEREAS and 전문/배경 entity mentions), `header-block.ts` (first-500-char scan for document title ending in AGREEMENT/CONTRACT/계약서/합의서); `structural/index.ts` aggregator re-exporting 5 parsers as `ALL_STRUCTURAL_PARSERS`; § 12.9 source-mapping rationale (signature-block → `"party-declaration"`, header-block → `"definition-section"`) with regression tests to guard the mapping; 65-test minimum plan (13 × 5); 27-item acceptance checklist
+- **§ 13** — `rules/legal.ts`: 6 regex rules (`ko-case-number` with year-bounded pattern + type syllables, `ko-court-name` with 20-region + 4-suffix alternation, `ko-statute-ref` with 17 law names and hierarchical 조/항/호 chain, `en-case-citation` with 12+ reporter abbreviations, `en-statute-ref` with Section/U.S.C.§ forms, `legal-context` with label-driven variable-length lookbehind); no post-filters; registry diff adds `...LEGAL` as the FINAL regex category (44 total rules); 78-test minimum plan; 17-item acceptance checklist
+- **§ 14** — `rules/heuristics/` (4 heuristics + 2 role blacklists): `capitalization-cluster.ts` (English 2+ caps words, confidence 0.7), `quoted-term.ts` (bilingual "X"/'X' forms, confidence 0.6), `repeatability.ts` (frequency ≥ 3, confidence 0.5, paranoid-only), `email-domain-inference.ts` (email domain → company name with TLD stripping, confidence 0.8/0.6 split by corporate prefix); `role-blacklist-ko.ts` + `role-blacklist-en.ts` (50 words each); every heuristic implements all 5 RULES_GUIDE § 6.2 required behaviors (D9 skip, prior-candidate skip, role blacklist, confidence < 1.0, valid candidate text); `heuristics/index.ts` aggregator; 60-test minimum + 10 blacklist tests; 24-item acceptance checklist
 
-### What is pending (write in this order, across future sessions)
+### What is pending (write in this order, in ONE more session)
 
-Each section estimate is rough. Total pending: ~1200 lines (§ 6–12 complete, approximately 4200 lines added across sessions +1, +2, +3).
+Each section estimate is rough. Total pending: ~1450 lines (§ 6–14 complete, approximately 5300 lines added across sessions +1 through +4).
 
 | § | Content | Est. lines | Order |
 |---|---|---:|---:|
 | ~~6~~ | ~~Type extensions in `_framework/types.ts`~~ — **DONE session +1** | ~150 | ✓ |
-| ~~7~~ | ~~Runner extensions — `runStructuralPhase`, `runHeuristicPhase`, `runAllPhases`, optional `{ language }` param~~ — **DONE session +1** | ~500 | ✓ |
-| ~~8~~ | ~~`detect-all.ts` — `detectAll`, `detectAllInZip`, `buildAllTargetsFromZip`, Analysis shape extension~~ — **DONE session +1** | ~400 | ✓ |
-| ~~9~~ | ~~`rules/financial.ts` — 10 regex rules (KRW × 3, USD × 2, foreign × 2, percentage, fraction, context scanner)~~ — **DONE session +2** | ~700 | ✓ |
-| ~~10~~ | ~~`rules/temporal.ts` — 8 regex rules (Korean full/short/range dates, ISO, English date, Korean/English duration, label-driven date context)~~ — **DONE session +2** | ~550 | ✓ |
-| ~~11~~ | ~~`rules/entities.ts` — 12 regex rules (Korean × 6: corp-prefix/suffix/abbrev, legal-other, title-name, honorific; English × 6: corp-suffix, legal-form, title-person, exec-title, ko-identity-context, en-identity-context)~~ — **DONE session +3** | ~700 | ✓ |
-| ~~12~~ | ~~`rules/structural/` — 5 parsers (definition-section, signature-block, party-declaration, recitals, header-block) + index.ts aggregator + source-mapping rationale~~ — **DONE session +3** | ~900 | ✓ |
+| ~~7~~ | ~~Runner extensions~~ — **DONE session +1** | ~500 | ✓ |
+| ~~8~~ | ~~`detect-all.ts`~~ — **DONE session +1** | ~400 | ✓ |
+| ~~9~~ | ~~`rules/financial.ts` — 10 regex rules~~ — **DONE session +2** | ~700 | ✓ |
+| ~~10~~ | ~~`rules/temporal.ts` — 8 regex rules~~ — **DONE session +2** | ~550 | ✓ |
+| ~~11~~ | ~~`rules/entities.ts` — 12 regex rules~~ — **DONE session +3** | ~700 | ✓ |
+| ~~12~~ | ~~`rules/structural/` — 5 parsers~~ — **DONE session +3** | ~900 | ✓ |
+| ~~13~~ | ~~`rules/legal.ts` — 6 regex rules~~ — **DONE session +4** | ~400 | ✓ |
+| ~~14~~ | ~~`rules/heuristics/` — 4 heuristics + 2 role blacklists~~ — **DONE session +4** | ~700 | ✓ |
 | 10 | `rules/temporal.ts` — 8 regex rules. Korean date (2024년 3월 15일, 2024.3.15), Korean short date, Korean date range, ISO date, English date, Korean duration (3년간, 6개월, 90일), English duration, temporal context scanner. | ~500 | Session +2 |
 | 11 | `rules/entities.ts` — 12 regex rules. Korean corporate suffix (주식회사 X / X 주식회사 / (주)X), Korean legal forms (유한회사, 합자회사, 사단법인), Korean title+name (대표이사 김철수, 이사 박영희), English corporate suffix (Corp/Inc/LLC/Ltd/Co), English legal forms (GmbH/S.A./NV/PLC/Pty), English title+name (Mr./Dr./CEO + Name), Korean honorifics, identity context scanner. | ~700 | Session +2 |
 | 12 | `rules/structural/` — 5 parsers. Each parser has its own .ts file with StructuralParser implementation + top-of-file JSDoc with rationale. definition-section (Korean + English), signature-block (By:, 이름:, 대표이사), party-declaration (first-para scan), recitals (WHEREAS, 전문), header-block (title, execution date, document number). Plus `index.ts` re-exporting `ALL_STRUCTURAL_PARSERS`. | ~900 | Session +3 |
@@ -4612,19 +5589,19 @@ Phase 1 brief does NOT address UI. It only ensures `engine.ts` adds `nonPiiCandi
 
 ### Next session startup checklist
 
-1. Open this file and confirm the "PARTIAL DRAFT" warning is still at the top — it should now say "§ 0–12 written".
-2. Read `../document-redactor-private-notes/session-log-2026-04-11-v2.md` for the full review context.
-3. Read the 4 external feedback files in repo root (`ChatGPT 5.4 Pro Feedback_1.md`, `_2.md`, `Codex Feedback.md`) — these are the quality bar for rule authoring, especially for § 13–14 per-category rule drafting.
-4. Verify `git log --oneline -9` shows the session-+1 / +2 / +3 commits adding § 6–12 after `e41d842 docs(phases): start phase-1 rulebook brief §0-5 (PARTIAL DRAFT)`.
-5. Verify `bun run test` still shows 422 passing (Phase 0 has not been executed by Codex yet — these are still the v1.0 legacy tests).
-6. Start writing § 13 (`rules/legal.ts` — 6 regex rules, ~400 lines — reuses § 9/10/11 template) → § 14 (heuristics + role blacklists, ~700 lines — **before writing, read RULES_GUIDE § 6** for the heuristic shape, especially § 6.2 required behaviors). § 14 has a DIFFERENT shape from regex rules (similar to § 12 parsers — exports a `detect(text, ctx)` function that consumes `HeuristicContext`, returns `Candidate[]`). § 14 also creates `rules/role-blacklist-ko.ts` + `rules/role-blacklist-en.ts` (pure data files, ~50 entries each).
+1. Open this file and confirm the "PARTIAL DRAFT" warning is still at the top — it should now say "§ 0–14 written (ALL rule specs complete)".
+2. Verify `git log --oneline -10` shows the full commit chain.
+3. Verify `bun run test` still shows 422 passing.
+4. Write § 15 (testing requirements summary — ~150 lines), then § 16 (TDD sequence — ~600 lines, the longest remaining section), then § 17 (verification commands — ~200 lines), then § 18 (gotchas/acceptance/handback/error handling — ~500 lines).
+5. Model § 15–18 on the Phase 0 brief's §§ 14–21 (which have the same structural role — testing/TDD/verification/acceptance).
+6. **Key decision for § 16:** the TDD sequence must commit at each step, and the step order must build from the inside out (types → runner → parsers → regex rules → heuristics → detect-all → engine migration → ship gate). This ensures each commit is individually testable.
 7. After each section: `wc -l docs/phases/phase-1-rulebook.md`, commit with a message like `docs(phases): phase-1 brief § 11 entities rules (partial)`.
 8. Continue across sessions until every section is written, then remove the "PARTIAL DRAFT" warning at the top as the final commit of the brief-authoring stream.
 
 ### Do NOT in future sessions
 
 - Do NOT re-run plan-eng-review on this brief. The review is complete.
-- Do NOT rewrite § 0–12. They are locked. § 6–8 specify exact TypeScript for the framework extension surface. § 9 specifies exact regex sources for the 10 financial rules. § 10 specifies exact regex sources for the 8 temporal rules plus calendar-validation post-filters. § 11 specifies exact regex sources for the 12 entity rules with deliberately context-free semantics. § 12 specifies exact TypeScript for the 5 structural parsers with the source-mapping rationale for signature-block and header-block (mapped to the locked 3-value source union). Do not "improve", "tune", rename, refactor, or extend the source union without a ReDoS re-audit and a plan-eng-review re-opener.
+- Do NOT rewrite § 0–14. They are locked. § 6–8: framework extension surface. § 9: 10 financial rules. § 10: 8 temporal rules + calendar post-filters. § 11: 12 entity rules. § 12: 5 structural parsers + source-mapping rationale. § 13: 6 legal rules. § 14: 4 heuristics + 2 role blacklists (50 words each). Do not "improve", "tune", rename, refactor, or extend the source union without a ReDoS re-audit and a plan-eng-review re-opener.
 - Do NOT hand the brief to Codex until the "PARTIAL DRAFT" warning is removed.
 - Do NOT commit Phase 1 content changes to `src/` in the same session as brief authoring. This is a doc-only stream until the brief is complete.
 - Do NOT modify the Phase 0 brief again after commit 187b7f8. It is locked for Codex execution.
