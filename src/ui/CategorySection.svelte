@@ -19,7 +19,7 @@
     category: SectionCategory;
     candidates: ReadonlyArray<CategoryCandidate>;
     canManualAdd: boolean;
-    warnStyle?: boolean;
+    warnStyle?: boolean | undefined;
   };
 
   let {

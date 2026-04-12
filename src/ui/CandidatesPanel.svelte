@@ -1,35 +1,8 @@
 <!--
-  Right panel — category-grouped review UI for the Phase 1 candidate tree.
-
-  Authoritative structural reference from session-log-2026-04-11-v2
-  ("Finding 1.3 — user insight"):
-
-  ┌─────────────────────────────────────┐
-  │  자동 감지됨 (Auto-detected)          │
-  │  ┌────────────┬─────────────────┐   │
-  │  │ 당사자       │ [✓] ABC 주식회사  │   │
-  │  │            │ [✓] 대표이사 김철수 │   │
-  │  │            │ [+ 추가]         │   │
-  │  ├────────────┼─────────────────┤   │
-  │  │ 식별번호     │ [✓] 123-45-67890│   │
-  │  │ (PII)      │ [✓] 12-3456789  │   │
-  │  ├────────────┼─────────────────┤   │
-  │  │ 금액        │ [✓] 50,000,000원│   │
-  │  │            │ [✓] USD 50,000  │   │
-  │  │            │ [+ 추가]         │   │
-  │  ├────────────┼─────────────────┤   │
-  │  │ 날짜 / 기간  │ [✓] 2024년 3월 15일│ │
-  │  │            │ [✓] 3년간        │   │
-  │  │            │ [+ 추가]         │   │
-  │  ├────────────┼─────────────────┤   │
-  │  │ 법원 / 사건  │ [ ] 서울중앙지방법원 │ │
-  │  │            │ [ ] 2023가합12345│   │
-  │  ├────────────┼─────────────────┤   │
-  │  │ 추측 (낮은   │ [ ] "Project Alpha"│ │
-  │  │ 신뢰도)     │ [ ] XYZ Company │   │
-  │  └────────────┴─────────────────┘   │
-  │  [+ 누락된 항목 직접 추가]              │
-  └─────────────────────────────────────┘
+  Right panel — Phase 2 category review UI.
+  Session-log reference ("Finding 1.3 — user insight"):
+  당사자 / 식별번호 / 금액 / 날짜·기간 / 법원·사건 / 추측,
+  with per-category "+ 추가" for under-cover and uncheck for over-cover.
 -->
 <script lang="ts">
   import CategorySection from "./CategorySection.svelte";
@@ -56,11 +29,19 @@
     heuristics: CategoryCandidate[];
   };
 
-  type Props = {
-    phase: AppPhase;
+  type PanelSectionKey = keyof PanelSections;
+  type SectionCategory = ManualCategory | "defined" | "pii" | "heuristics";
+
+  type SectionSpec = {
+    key: PanelSectionKey;
+    label: string;
+    subHint: string;
+    category: SectionCategory;
+    canManualAdd: boolean;
+    warnStyle?: boolean;
   };
 
-  let { phase }: Props = $props();
+  type Props = { phase: AppPhase };
 
   const EMPTY_SECTIONS: PanelSections = {
     literals: [],
@@ -73,13 +54,71 @@
     heuristics: [],
   };
 
+  const SECTION_SPECS: readonly SectionSpec[] = [
+    {
+      key: "literals",
+      label: "당사자",
+      subHint: "Auto-selected · 자동 선택됨",
+      category: "literals",
+      canManualAdd: true,
+    },
+    {
+      key: "defined",
+      label: "정의된 대리어",
+      subHint: "Kept as-is by default (D9 정책 — 독해성 유지)",
+      category: "defined",
+      canManualAdd: false,
+    },
+    {
+      key: "pii",
+      label: "식별번호 (PII)",
+      subHint: "주민번호 · 사업자번호 · 이메일 · 계좌 — 자동 검출",
+      category: "pii",
+      canManualAdd: false,
+    },
+    {
+      key: "financial",
+      label: "금액",
+      subHint: "한화 · USD · 외화 · 백분율 — Phase 1 financial rules",
+      category: "financial",
+      canManualAdd: true,
+    },
+    {
+      key: "temporal",
+      label: "날짜 / 기간",
+      subHint: "한국식 · ISO · 영문 · 기간 — Phase 1 temporal rules",
+      category: "temporal",
+      canManualAdd: true,
+    },
+    {
+      key: "entities",
+      label: "법인 / 인물",
+      subHint: "주식회사 · 대표이사 · 서명자 — Phase 1 entities + structural",
+      category: "entities",
+      canManualAdd: true,
+    },
+    {
+      key: "legal",
+      label: "법원 / 사건",
+      subHint: "사건번호 · 법원명 · 법령 · 판례 — Phase 1 legal rules",
+      category: "legal",
+      canManualAdd: true,
+    },
+    {
+      key: "heuristics",
+      label: "추측 (낮은 신뢰도)",
+      subHint: "휴리스틱 감지 — 검토 후 체크하세요",
+      category: "heuristics",
+      canManualAdd: false,
+      warnStyle: true,
+    },
+  ];
+
+  let { phase }: Props = $props();
   let selectedCount = $derived(appState.selections.size);
-
-  let sections = $derived.by(() => {
-    if (phase.kind !== "postParse") return EMPTY_SECTIONS;
-    return buildSections(phase.analysis);
-  });
-
+  let sections = $derived.by(() =>
+    phase.kind === "postParse" ? buildSections(phase.analysis) : EMPTY_SECTIONS,
+  );
   let totalCount = $derived(
     sections.literals.length +
       sections.defined.length +
@@ -90,10 +129,7 @@
       sections.legal.length +
       sections.heuristics.length,
   );
-
-  let canApply = $derived(
-    phase.kind === "postParse" && selectedCount > 0,
-  );
+  let canApply = $derived(phase.kind === "postParse" && selectedCount > 0);
 
   function piiKindLabel(kind: PiiCandidate["kind"]): string {
     switch (kind) {
@@ -116,11 +152,8 @@
     }
   }
 
-  function formatScopes(
-    scopes: ReadonlyArray<{ kind: string; path: string }>,
-  ): string {
-    const kinds = new Set(scopes.map((scope) => scope.kind));
-    return [...kinds].join(" · ");
+  function formatScopes(scopes: ReadonlyArray<{ kind: string; path: string }>): string {
+    return [...new Set(scopes.map((scope) => scope.kind))].join(" · ");
   }
 
   function ruleSubcategory(ruleId: string): string {
@@ -128,156 +161,80 @@
     return subcategory;
   }
 
-  function pushUnique(
-    out: CategoryCandidate[],
-    seen: Set<string>,
-    candidate: CategoryCandidate,
-  ): void {
-    if (seen.has(candidate.text)) return;
-    seen.add(candidate.text);
-    out.push(candidate);
-  }
+  function buildSections(analysis: Analysis): PanelSections {
+    const seen = new Set<string>();
+    const push = (out: CategoryCandidate[], candidate: CategoryCandidate): void => {
+      if (seen.has(candidate.text)) return;
+      seen.add(candidate.text);
+      out.push(candidate);
+    };
+    const appendManual = (out: CategoryCandidate[], category: ManualCategory): void => {
+      const bucket = appState.manualAdditions.get(category);
+      if (bucket === undefined) return;
+      for (const text of bucket) {
+        push(out, { text, meta: "manual", isManual: true, manualCategory: category });
+      }
+    };
+    const collectNonPii = (
+      categories: readonly Analysis["nonPiiCandidates"][number]["category"][],
+      manualCategory?: ManualCategory,
+    ): CategoryCandidate[] => {
+      const out: CategoryCandidate[] = [];
+      const allowed = new Set(categories);
+      for (const candidate of analysis.nonPiiCandidates) {
+        if (!allowed.has(candidate.category)) continue;
+        push(out, {
+          text: candidate.text,
+          meta: `${ruleSubcategory(candidate.ruleId)} · ${formatScopes(candidate.scopes)}`,
+          confidence: candidate.confidence,
+          isManual: false,
+        });
+      }
+      if (manualCategory !== undefined) appendManual(out, manualCategory);
+      return out;
+    };
 
-  function appendManualCandidates(
-    out: CategoryCandidate[],
-    seen: Set<string>,
-    category: ManualCategory,
-  ): void {
-    const bucket = appState.manualAdditions.get(category);
-    if (bucket === undefined) return;
-    for (const text of bucket) {
-      pushUnique(out, seen, {
-        text,
-        meta: "manual",
-        isManual: true,
-        manualCategory: category,
-      });
-    }
-  }
-
-  function buildLiteralCandidates(
-    analysis: Analysis,
-    seen: Set<string>,
-  ): CategoryCandidate[] {
-    const out: CategoryCandidate[] = [];
+    const literals: CategoryCandidate[] = [];
     for (const group of analysis.entityGroups) {
       for (const candidate of group.literals) {
-        pushUnique(out, seen, {
+        push(literals, {
           text: candidate.text,
           meta: `literal · ${group.seed}`,
           isManual: false,
         });
       }
     }
-    appendManualCandidates(out, seen, "literals");
-    return out;
-  }
+    appendManual(literals, "literals");
 
-  function buildDefinedCandidates(
-    analysis: Analysis,
-    seen: Set<string>,
-  ): CategoryCandidate[] {
-    const out: CategoryCandidate[] = [];
+    const defined: CategoryCandidate[] = [];
     for (const group of analysis.entityGroups) {
       for (const candidate of group.defined) {
-        pushUnique(out, seen, {
+        push(defined, {
           text: candidate.text,
           meta: `from definition · ${group.seed}`,
           isManual: false,
         });
       }
     }
-    return out;
-  }
 
-  function buildPiiCandidates(
-    analysis: Analysis,
-    seen: Set<string>,
-  ): CategoryCandidate[] {
-    const out: CategoryCandidate[] = [];
+    const pii: CategoryCandidate[] = [];
     for (const candidate of analysis.piiCandidates) {
-      pushUnique(out, seen, {
+      push(pii, {
         text: candidate.text,
         meta: `${piiKindLabel(candidate.kind)} · ${formatScopes(candidate.scopes)}`,
         isManual: false,
       });
     }
-    return out;
-  }
-
-  function buildNonPiiCandidates(
-    analysis: Analysis,
-    seen: Set<string>,
-    categories: ReadonlyArray<
-      "financial" | "temporal" | "entities" | "structural" | "legal" | "heuristics"
-    >,
-    manualCategory?: ManualCategory,
-  ): CategoryCandidate[] {
-    const allowed = new Set(categories);
-    const out: CategoryCandidate[] = [];
-
-    for (const candidate of analysis.nonPiiCandidates) {
-      if (!allowed.has(candidate.category)) continue;
-      pushUnique(out, seen, {
-        text: candidate.text,
-        meta: `${ruleSubcategory(candidate.ruleId)} · ${formatScopes(candidate.scopes)}`,
-        confidence: candidate.confidence,
-        isManual: false,
-      });
-    }
-
-    if (manualCategory !== undefined) {
-      appendManualCandidates(out, seen, manualCategory);
-    }
-
-    return out;
-  }
-
-  function buildSections(analysis: Analysis): PanelSections {
-    const seen = new Set<string>();
-
-    const literals = buildLiteralCandidates(analysis, seen);
-    const defined = buildDefinedCandidates(analysis, seen);
-    const pii = buildPiiCandidates(analysis, seen);
-    const financial = buildNonPiiCandidates(
-      analysis,
-      seen,
-      ["financial"],
-      "financial",
-    );
-    const temporal = buildNonPiiCandidates(
-      analysis,
-      seen,
-      ["temporal"],
-      "temporal",
-    );
-    const entities = buildNonPiiCandidates(
-      analysis,
-      seen,
-      ["entities", "structural"],
-      "entities",
-    );
-    const legal = buildNonPiiCandidates(
-      analysis,
-      seen,
-      ["legal"],
-      "legal",
-    );
-    const heuristics = buildNonPiiCandidates(
-      analysis,
-      seen,
-      ["heuristics"],
-    );
 
     return {
       literals,
       defined,
       pii,
-      financial,
-      temporal,
-      entities,
-      legal,
-      heuristics,
+      financial: collectNonPii(["financial"], "financial"),
+      temporal: collectNonPii(["temporal"], "temporal"),
+      entities: collectNonPii(["entities", "structural"], "entities"),
+      legal: collectNonPii(["legal"], "legal"),
+      heuristics: collectNonPii(["heuristics"]),
     };
   }
 </script>
@@ -286,76 +243,20 @@
   {#if phase.kind === "postParse"}
     <div class="panel-head">
       <h2 class="panel-title">Candidates</h2>
-      <p class="panel-sub">
-        Review every string before redaction. Categories below.
-      </p>
+      <p class="panel-sub">Review every string before redaction. Categories below.</p>
     </div>
 
     <div class="panel-body">
-      <CategorySection
-        label="당사자"
-        subHint="Auto-selected · 자동 선택됨"
-        category="literals"
-        candidates={sections.literals}
-        canManualAdd={true}
-      />
-
-      <CategorySection
-        label="정의된 대리어"
-        subHint="Kept as-is by default (D9 정책 — 독해성 유지)"
-        category="defined"
-        candidates={sections.defined}
-        canManualAdd={false}
-      />
-
-      <CategorySection
-        label="식별번호 (PII)"
-        subHint="주민번호 · 사업자번호 · 이메일 · 계좌 — 자동 검출"
-        category="pii"
-        candidates={sections.pii}
-        canManualAdd={false}
-      />
-
-      <CategorySection
-        label="금액"
-        subHint="한화 · USD · 외화 · 백분율 — Phase 1 financial rules"
-        category="financial"
-        candidates={sections.financial}
-        canManualAdd={true}
-      />
-
-      <CategorySection
-        label="날짜 / 기간"
-        subHint="한국식 · ISO · 영문 · 기간 — Phase 1 temporal rules"
-        category="temporal"
-        candidates={sections.temporal}
-        canManualAdd={true}
-      />
-
-      <CategorySection
-        label="법인 / 인물"
-        subHint="주식회사 · 대표이사 · 서명자 — Phase 1 entities + structural"
-        category="entities"
-        candidates={sections.entities}
-        canManualAdd={true}
-      />
-
-      <CategorySection
-        label="법원 / 사건"
-        subHint="사건번호 · 법원명 · 법령 · 판례 — Phase 1 legal rules"
-        category="legal"
-        candidates={sections.legal}
-        canManualAdd={true}
-      />
-
-      <CategorySection
-        label="추측 (낮은 신뢰도)"
-        subHint="휴리스틱 감지 — 검토 후 체크하세요"
-        category="heuristics"
-        candidates={sections.heuristics}
-        canManualAdd={false}
-        warnStyle={true}
-      />
+      {#each SECTION_SPECS as section (section.key)}
+        <CategorySection
+          label={section.label}
+          subHint={section.subHint}
+          category={section.category}
+          candidates={sections[section.key]}
+          canManualAdd={section.canManualAdd}
+          warnStyle={section.warnStyle}
+        />
+      {/each}
     </div>
 
     <div class="panel-foot">
@@ -434,18 +335,18 @@
   }
 
   .panel-title {
+    margin: 0;
     font-size: 15px;
     font-weight: 700;
     letter-spacing: -0.015em;
-    margin: 0;
     color: var(--ink-strong);
   }
 
   .panel-sub {
-    font-size: 12px;
-    color: var(--ink-soft);
     margin-top: 5px;
+    font-size: 12px;
     line-height: 1.5;
+    color: var(--ink-soft);
   }
 
   .panel-body {
@@ -466,9 +367,9 @@
   .summary-row {
     display: flex;
     justify-content: space-between;
+    margin-bottom: 7px;
     font-size: 12.5px;
     color: var(--ink-soft);
-    margin-bottom: 7px;
   }
 
   .summary-row strong {
@@ -481,18 +382,15 @@
     width: 100%;
     margin-top: 14px;
     padding: 12px 16px;
-    background: var(--primary);
-    color: #fff;
     border: 1px solid var(--primary);
     border-radius: var(--radius);
-    font-weight: 600;
+    background: var(--primary);
+    color: #fff;
     font-size: 14px;
+    font-weight: 600;
     letter-spacing: -0.005em;
     box-shadow: 0 1px 3px rgba(37, 99, 235, 0.35);
-    transition:
-      background 0.15s,
-      transform 0.1s,
-      box-shadow 0.15s;
+    transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
   }
 
   .btn-apply:hover:not(:disabled) {
@@ -513,10 +411,10 @@
   }
 
   .shortcut-hint {
-    font-size: 11px;
-    color: var(--ink-muted);
-    text-align: center;
     margin-top: 10px;
+    font-size: 11px;
+    text-align: center;
+    color: var(--ink-muted);
     font-family: var(--mono);
   }
 </style>
