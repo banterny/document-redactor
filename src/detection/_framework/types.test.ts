@@ -1,4 +1,4 @@
-import { describe, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type {
   Candidate,
@@ -131,5 +131,50 @@ describe("types.ts exports", () => {
       detect: (_text, _ctx) => [],
     };
     expectTypeOf(h.detect).returns.toMatchTypeOf<readonly Candidate[]>();
+  });
+});
+
+describe("framework types — Phase 1 assertions", () => {
+  it("HeuristicContext.documentLanguage is the detected-language union, not rule-language", () => {
+    const ctx: HeuristicContext = {
+      structuralDefinitions: [],
+      priorCandidates: [],
+      documentLanguage: "mixed",
+    };
+    expectTypeOf(ctx.documentLanguage).toEqualTypeOf<"ko" | "en" | "mixed">();
+    // @ts-expect-error — "universal" is not a valid documentLanguage value
+    const bad: HeuristicContext["documentLanguage"] = "universal";
+    void bad;
+  });
+
+  it("Language union is closed at three values", () => {
+    function narrow(l: Language): "ko" | "en" | "universal" {
+      switch (l) {
+        case "ko":
+          return "ko";
+        case "en":
+          return "en";
+        case "universal":
+          return "universal";
+      }
+    }
+    expect(narrow("ko")).toBe("ko");
+    expect(narrow("en")).toBe("en");
+    expect(narrow("universal")).toBe("universal");
+  });
+
+  it("Candidate is plain data (JSON round-trippable)", () => {
+    const c: Candidate = {
+      text: "50,000,000원",
+      ruleId: "financial.won-amount",
+      confidence: 1.0,
+    };
+    const roundTripped = JSON.parse(JSON.stringify(c));
+    expect(roundTripped).toEqual(c);
+    expect(Object.keys(roundTripped).sort()).toEqual([
+      "confidence",
+      "ruleId",
+      "text",
+    ]);
   });
 });

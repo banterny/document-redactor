@@ -12,8 +12,14 @@
  *   3. Add it to ALL_REGEX_RULES
  */
 
+import { ALL_HEURISTICS as _HEURISTICS } from "../rules/heuristics/index.js";
 import { IDENTIFIERS } from "../rules/identifiers.js";
-import type { RegexRule } from "./types.js";
+import { ALL_STRUCTURAL_PARSERS as _STRUCTURAL } from "../rules/structural/index.js";
+import type {
+  Heuristic,
+  RegexRule,
+  StructuralParser,
+} from "./types.js";
 
 /** All registered RegexRules across every category, in a stable iteration order. */
 export const ALL_REGEX_RULES: readonly RegexRule[] = [
@@ -23,6 +29,10 @@ export const ALL_REGEX_RULES: readonly RegexRule[] = [
   // Phase 1: ...ENTITIES
   // Phase 3: ...LEGAL
 ] as const;
+
+export const ALL_STRUCTURAL_PARSERS: readonly StructuralParser[] = _STRUCTURAL;
+
+export const ALL_HEURISTICS: readonly Heuristic[] = _HEURISTICS;
 
 /**
  * Runtime sanity checks. Fails fast at module load if any rule is malformed.
