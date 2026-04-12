@@ -13,6 +13,9 @@ const ADVERSARIAL_INPUTS: readonly string[] = [
   " ".repeat(10_000),
 ];
 
+const WARMUP_RUNS = 25;
+const MEASURED_RUNS = 200;
+
 function benchmarkRegex(source: string, flags: string, input: string): number {
   const inputExpr = adversarialInputExpr(input);
   const script = `
@@ -20,14 +23,19 @@ const input = ${inputExpr};
 const source = ${JSON.stringify(source)};
 const flags = ${JSON.stringify(flags)};
 const re = new RegExp(source, flags);
-re.exec(input);
-re.lastIndex = 0;
+
+function scan() {
+  re.lastIndex = 0;
+  let count = 0;
+  let m;
+  while ((m = re.exec(input)) !== null && count < 10000) count++;
+}
+
+for (let i = 0; i < ${WARMUP_RUNS}; i++) scan();
 const start = process.hrtime.bigint();
-let count = 0;
-let m;
-while ((m = re.exec(input)) !== null && count < 10000) count++;
+for (let i = 0; i < ${MEASURED_RUNS}; i++) scan();
 const elapsed = Number(process.hrtime.bigint() - start) / 1_000_000;
-process.stdout.write(String(elapsed));
+process.stdout.write(String(elapsed / ${MEASURED_RUNS}));
 `;
 
   return Number(
@@ -50,31 +58,16 @@ function adversarialInputExpr(input: string): string {
   return JSON.stringify(input);
 }
 
-/**
- * Budget per rule. Most rules get 50ms. The v1.0 email regex has quadratic
- * backtracking on alternating word/non-word inputs (e.g., "a-".repeat(5000))
- * because `[A-Za-z0-9._%+-]+` includes `-` in the character class, creating
- * overlap with the `\b` word-boundary anchor at every `-` position. The regex
- * is ported byte-for-byte from v1.0 and cannot be changed in Phase 0/1.
- * Real email addresses are < 100 chars so this is not a production concern.
- * Budget relaxed to 300ms for this specific pattern.
- */
-function budgetForRule(ruleId: string): number {
-  if (ruleId === "identifiers.email") return 300;
-  return 50;
-}
-
 describe("ReDoS guard", () => {
   for (const rule of ALL_REGEX_RULES) {
-    const budget = budgetForRule(rule.id);
     for (const input of ADVERSARIAL_INPUTS) {
-      it(`${rule.id} returns within ${budget}ms on ${input.length}-char adversarial input`, () => {
+      it(`${rule.id} returns within 50ms on ${input.length}-char adversarial input`, () => {
         const elapsed = benchmarkRegex(
           rule.pattern.source,
           rule.pattern.flags,
           input,
         );
-        expect(elapsed).toBeLessThan(budget);
+        expect(elapsed).toBeLessThan(50);
       });
     }
   }

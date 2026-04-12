@@ -75,10 +75,11 @@ export const PII_PATTERNS: Record<PiiKind, RegExp> = {
   // `+44 20 7946 0958` without runaway backtracking.
   "phone-intl": /(?<![\w+])\+\d{1,3}(?:[\s-]\d{1,4}){2,4}(?!\d)/g,
 
-  // Email. The classic bounded form. Anchored on word boundaries so it does
-  // not eat surrounding punctuation, and the TLD must be at least 2 ASCII
-  // letters (consistent with ICANN; we don't try to validate the suffix).
-  email: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+  // Email. Uses ASCII-word boundaries instead of `\b`, caps the local part to
+  // 64 chars, and requires dot-delimited domain labels capped to 63 chars so
+  // adversarial inputs do not trigger runaway backtracking.
+  email:
+    /(?<![A-Za-z0-9_])[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,}(?![A-Za-z0-9_])/g,
 
   // Korean bank account: vendor-specific lengths but the canonical separator
   // pattern is `3-6 / 2-3 / 4-7`. This intentionally overlaps with `brn` (3-2-5)

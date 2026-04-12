@@ -64,7 +64,8 @@ export const IDENTIFIERS = [
     id: "identifiers.email",
     category: "identifiers",
     subcategory: "email",
-    pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+    pattern:
+      /(?<![A-Za-z0-9_])[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,}(?![A-Za-z0-9_])/g,
     levels: ["conservative", "standard", "paranoid"],
     languages: ["universal"],
     description: "Email address, bounded form with 2+ letter TLD",
