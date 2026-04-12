@@ -13,6 +13,7 @@
  */
 
 import { ALL_HEURISTICS as _HEURISTICS } from "../rules/heuristics/index.js";
+import { FINANCIAL } from "../rules/financial.js";
 import { IDENTIFIERS } from "../rules/identifiers.js";
 import { ALL_STRUCTURAL_PARSERS as _STRUCTURAL } from "../rules/structural/index.js";
 import type {
@@ -24,7 +25,7 @@ import type {
 /** All registered RegexRules across every category, in a stable iteration order. */
 export const ALL_REGEX_RULES: readonly RegexRule[] = [
   ...IDENTIFIERS,
-  // Phase 1: ...FINANCIAL
+  ...FINANCIAL,
   // Phase 1: ...TEMPORAL
   // Phase 1: ...ENTITIES
   // Phase 3: ...LEGAL
