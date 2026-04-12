@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 
-import { ALL_REGEX_RULES } from "./registry.js";
+import { ALL_HEURISTICS, ALL_REGEX_RULES, ALL_STRUCTURAL_PARSERS } from "./registry.js";
+import type { HeuristicContext } from "./types.js";
 
 const ADVERSARIAL_INPUTS: readonly string[] = [
   "a".repeat(10_000),
@@ -15,6 +16,46 @@ const ADVERSARIAL_INPUTS: readonly string[] = [
 
 const WARMUP_RUNS = 25;
 const MEASURED_RUNS = 200;
+const FUNCTION_WARMUP_RUNS = 20;
+const FUNCTION_MEASURED_RUNS = 100;
+
+const PARSER_ADVERSARIAL_INPUTS: Readonly<Record<string, string>> = {
+  "structural.definition-section": `"${"A".repeat(5000)}" means ${"B".repeat(5000)}`,
+  "structural.signature-block": `${"x".repeat(9000)}Name: ${"A".repeat(1000)}`,
+  "structural.party-declaration": `${"A ".repeat(3000)}(hereinafter as 'Buyer')`,
+  "structural.recitals": `전문${"가".repeat(5000)}${"주식회사".repeat(1000)}`,
+  "structural.header-block": `${"A".repeat(10000)} AGREEMENT`,
+};
+
+const DEFAULT_HEURISTIC_CONTEXT: HeuristicContext = {
+  structuralDefinitions: [],
+  priorCandidates: [],
+  documentLanguage: "mixed",
+};
+
+const HEURISTIC_ADVERSARIAL_INPUTS: Readonly<Record<string, string>> = {
+  "heuristics.capitalization-cluster": `${"A".repeat(5000)} ${"B".repeat(5000)}`,
+  "heuristics.quoted-term": `"${"A".repeat(10000)}"`,
+  "heuristics.repeatability": `${"Acme ".repeat(2000)}${"삼성전자 ".repeat(1000)}`,
+  "heuristics.email-domain-inference": "",
+};
+
+const HEURISTIC_CONTEXTS: Readonly<Record<string, HeuristicContext>> = {
+  "heuristics.capitalization-cluster": DEFAULT_HEURISTIC_CONTEXT,
+  "heuristics.quoted-term": DEFAULT_HEURISTIC_CONTEXT,
+  "heuristics.repeatability": DEFAULT_HEURISTIC_CONTEXT,
+  "heuristics.email-domain-inference": {
+    structuralDefinitions: [],
+    priorCandidates: [
+      {
+        text: `legal@${"a".repeat(5000)}.${"b".repeat(5000)}.com`,
+        ruleId: "identifiers.email",
+        confidence: 1.0,
+      },
+    ],
+    documentLanguage: "mixed",
+  },
+};
 
 function benchmarkRegex(source: string, flags: string, input: string): number {
   const inputExpr = adversarialInputExpr(input);
@@ -58,6 +99,17 @@ function adversarialInputExpr(input: string): string {
   return JSON.stringify(input);
 }
 
+function benchmarkOperation(fn: () => unknown): number {
+  for (let i = 0; i < FUNCTION_WARMUP_RUNS; i++) {
+    void fn();
+  }
+  const start = performance.now();
+  for (let i = 0; i < FUNCTION_MEASURED_RUNS; i++) {
+    void fn();
+  }
+  return (performance.now() - start) / FUNCTION_MEASURED_RUNS;
+}
+
 describe("ReDoS guard", () => {
   for (const rule of ALL_REGEX_RULES) {
     for (const input of ADVERSARIAL_INPUTS) {
@@ -70,5 +122,22 @@ describe("ReDoS guard", () => {
         expect(elapsed).toBeLessThan(50);
       });
     }
+  }
+
+  for (const parser of ALL_STRUCTURAL_PARSERS) {
+    it(`${parser.id} returns within 100ms on structural adversarial input`, () => {
+      const input = PARSER_ADVERSARIAL_INPUTS[parser.id];
+      const elapsed = benchmarkOperation(() => parser.parse(input));
+      expect(elapsed).toBeLessThan(100);
+    });
+  }
+
+  for (const heuristic of ALL_HEURISTICS) {
+    it(`${heuristic.id} returns within 100ms on heuristic adversarial input`, () => {
+      const input = HEURISTIC_ADVERSARIAL_INPUTS[heuristic.id];
+      const context = HEURISTIC_CONTEXTS[heuristic.id];
+      const elapsed = benchmarkOperation(() => heuristic.detect(input, context));
+      expect(elapsed).toBeLessThan(100);
+    });
   }
 });

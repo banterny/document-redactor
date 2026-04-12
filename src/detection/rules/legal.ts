@@ -82,7 +82,7 @@ export const LEGAL = [
     category: "legal",
     subcategory: "legal-context",
     pattern:
-      /(?<=(?:사건번호|사건|Case\s+No|Court|Docket\s+No|법원)\s*[:：.]\s*).{3,60}?(?=$|\n|[;,])/g,
+      /(?:(?<=사건번호:)|(?<=사건번호: )|(?<=사건번호：)|(?<=사건번호： )|(?<=사건:)|(?<=사건: )|(?<=사건：)|(?<=사건： )|(?<=법원:)|(?<=법원: )|(?<=법원：)|(?<=법원： )|(?<=Court:)|(?<=Court: )|(?<=Court：)|(?<=Court： )|(?<=Case No\.)|(?<=Case No\. )|(?<=Case No\.:)|(?<=Case No\.: )|(?<=Case No\.：)|(?<=Case No\.： )|(?<=Case No:)|(?<=Case No: )|(?<=Case No：)|(?<=Case No： )|(?<=Docket No\.)|(?<=Docket No\. )|(?<=Docket No\.:)|(?<=Docket No\.: )|(?<=Docket No\.：)|(?<=Docket No\.： )|(?<=Docket No:)|(?<=Docket No: )|(?<=Docket No：)|(?<=Docket No： ))[^\n;,]{3,60}(?=$|\n|[;,])/g,
     levels: ["standard", "paranoid"],
     languages: ["ko", "en"],
     description:
