@@ -78,14 +78,14 @@ describe("IDENTIFIERS registry", () => {
 
   it("every rule pattern.source matches the legacy PII_PATTERNS entry", () => {
     for (const r of IDENTIFIERS) {
-      const kind = SUBCATEGORY_TO_KIND[r.subcategory];
+      const kind = SUBCATEGORY_TO_KIND[r.subcategory]!;
       expect(r.pattern.source).toBe(PII_PATTERNS[kind].source);
     }
   });
 
   it("every rule pattern.flags matches the legacy PII_PATTERNS entry", () => {
     for (const r of IDENTIFIERS) {
-      const kind = SUBCATEGORY_TO_KIND[r.subcategory];
+      const kind = SUBCATEGORY_TO_KIND[r.subcategory]!;
       expect(r.pattern.flags).toBe(PII_PATTERNS[kind].flags);
     }
   });
