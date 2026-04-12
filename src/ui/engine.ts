@@ -192,7 +192,9 @@ export function defaultSelections(analysis: Analysis): Set<string> {
     out.add(pii.text);
   }
   for (const candidate of analysis.nonPiiCandidates) {
-    out.add(candidate.text);
+    if (candidate.confidence === 1.0) {
+      out.add(candidate.text);
+    }
   }
   return out;
 }

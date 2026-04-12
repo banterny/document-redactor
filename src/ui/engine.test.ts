@@ -109,8 +109,24 @@ describe("analyzeZip", () => {
     expect(analysis.piiCandidates.length).toBeGreaterThanOrEqual(1);
 
     const selections = defaultSelections(analysis);
+    const literalTexts = new Set(
+      analysis.entityGroups.flatMap((group) =>
+        group.literals.map((candidate) => candidate.text),
+      ),
+    );
+    const piiTexts = new Set(
+      analysis.piiCandidates.map((candidate) => candidate.text),
+    );
     for (const cand of analysis.nonPiiCandidates) {
-      expect(selections.has(cand.text)).toBe(true);
+      if (
+        cand.confidence === 1.0 ||
+        literalTexts.has(cand.text) ||
+        piiTexts.has(cand.text)
+      ) {
+        expect(selections.has(cand.text)).toBe(true);
+      } else {
+        expect(selections.has(cand.text)).toBe(false);
+      }
     }
   });
 });
@@ -148,6 +164,129 @@ describe("defaultSelections — D9 policy", () => {
         expect(selected.has(def.text)).toBe(false);
       }
     }
+  });
+
+  it("does NOT include heuristic candidates (confidence < 1.0) in defaultSelections", () => {
+    const analysis = {
+      entityGroups: [],
+      piiCandidates: [],
+      nonPiiCandidates: [
+        {
+          text: "Acme Holdings",
+          ruleId: "heuristics.capitalization-cluster",
+          category: "heuristics" as const,
+          confidence: 0.7,
+          count: 3,
+          scopes: [],
+        },
+        {
+          text: "50,000,000원",
+          ruleId: "financial.won-amount",
+          category: "financial" as const,
+          confidence: 1.0,
+          count: 1,
+          scopes: [],
+        },
+      ],
+      fileStats: { sizeBytes: 0, scopeCount: 0 },
+    };
+    const selections = defaultSelections(analysis);
+    expect(selections.has("Acme Holdings")).toBe(false);
+    expect(selections.has("50,000,000원")).toBe(true);
+  });
+
+  it("excludes defined term labels from defaultSelections (D9 preserved)", () => {
+    const analysis = {
+      entityGroups: [
+        {
+          seed: "ABC Corp",
+          literals: [{ text: "ABC Corporation", count: 1, scopes: [] }],
+          defined: [{ text: "the Buyer", count: 5, scopes: [] }],
+          variant: "exact" as const,
+        },
+      ],
+      piiCandidates: [],
+      nonPiiCandidates: [],
+      fileStats: { sizeBytes: 0, scopeCount: 0 },
+    };
+    const selections = defaultSelections(analysis);
+    expect(selections.has("ABC Corporation")).toBe(true);
+    expect(selections.has("the Buyer")).toBe(false);
+  });
+
+  it("includes ALL PII candidates regardless of confidence field presence", () => {
+    const analysis = {
+      entityGroups: [],
+      piiCandidates: [
+        { text: "user@example.com", kind: "email" as const, count: 1, scopes: [] },
+      ],
+      nonPiiCandidates: [],
+      fileStats: { sizeBytes: 0, scopeCount: 0 },
+    };
+    const selections = defaultSelections(analysis);
+    expect(selections.has("user@example.com")).toBe(true);
+  });
+
+  it("includes non-heuristic nonPii candidates (confidence === 1.0) across all categories", () => {
+    const analysis = {
+      entityGroups: [],
+      piiCandidates: [],
+      nonPiiCandidates: [
+        {
+          text: "50,000원",
+          ruleId: "financial.won-amount",
+          category: "financial" as const,
+          confidence: 1.0,
+          count: 1,
+          scopes: [],
+        },
+        {
+          text: "2024년 3월 15일",
+          ruleId: "temporal.date-ko-full",
+          category: "temporal" as const,
+          confidence: 1.0,
+          count: 1,
+          scopes: [],
+        },
+        {
+          text: "ABC 주식회사",
+          ruleId: "entities.ko-corp-suffix",
+          category: "entities" as const,
+          confidence: 1.0,
+          count: 1,
+          scopes: [],
+        },
+        {
+          text: "대법원",
+          ruleId: "legal.ko-court-name",
+          category: "legal" as const,
+          confidence: 1.0,
+          count: 1,
+          scopes: [],
+        },
+        {
+          text: "NDA",
+          ruleId: "structural.header-block",
+          category: "structural" as const,
+          confidence: 1.0,
+          count: 1,
+          scopes: [],
+        },
+      ],
+      fileStats: { sizeBytes: 0, scopeCount: 0 },
+    };
+    const selections = defaultSelections(analysis);
+    expect(selections.size).toBe(5);
+  });
+
+  it("handles empty analysis by returning empty set", () => {
+    const analysis = {
+      entityGroups: [],
+      piiCandidates: [],
+      nonPiiCandidates: [],
+      fileStats: { sizeBytes: 0, scopeCount: 0 },
+    };
+    expect(defaultSelections(analysis).size).toBe(0);
   });
 });
 
