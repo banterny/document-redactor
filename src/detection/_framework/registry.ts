@@ -16,6 +16,7 @@ import { ALL_HEURISTICS as _HEURISTICS } from "../rules/heuristics/index.js";
 import { FINANCIAL } from "../rules/financial.js";
 import { IDENTIFIERS } from "../rules/identifiers.js";
 import { ALL_STRUCTURAL_PARSERS as _STRUCTURAL } from "../rules/structural/index.js";
+import { TEMPORAL } from "../rules/temporal.js";
 import type {
   Heuristic,
   RegexRule,
@@ -26,7 +27,7 @@ import type {
 export const ALL_REGEX_RULES: readonly RegexRule[] = [
   ...IDENTIFIERS,
   ...FINANCIAL,
-  // Phase 1: ...TEMPORAL
+  ...TEMPORAL,
   // Phase 1: ...ENTITIES
   // Phase 3: ...LEGAL
 ] as const;
