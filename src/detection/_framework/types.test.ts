@@ -38,16 +38,16 @@ describe("types.ts exports", () => {
   });
 
   it("RegexRule.category excludes structural and heuristics", () => {
-    // @ts-expect-error — structural is not assignable to RegexRule.category
-    const bad: RegexRule = {
+    const bad = {
       id: "structural.x",
+      // @ts-expect-error — structural is not assignable to RegexRule.category
       category: "structural",
       subcategory: "x",
       pattern: /x/g,
       levels: ["standard"],
       languages: ["universal"],
       description: "x",
-    };
+    } satisfies RegexRule;
     void bad;
   });
 
