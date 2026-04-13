@@ -6,14 +6,13 @@
   the ESLint ban guarantee zero network activity by construction.
 -->
 <script lang="ts">
-  import { APP_VERSION } from "../app-version.ts";
+  // No props, no state — the topbar is chrome.
 </script>
 
 <header class="topbar">
   <div class="brand">
     <div class="brand-mark">R</div>
     <span class="brand-name">Redactor</span>
-    <span class="version-badge">{APP_VERSION}</span>
     <span class="brand-sub">for lawyers · offline · local-only</span>
   </div>
   <div class="topbar-right">
@@ -71,20 +70,6 @@
     color: var(--ink-soft);
     margin-left: 2px;
     font-weight: 400;
-  }
-
-  .version-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 4px 10px;
-    border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--primary) 22%, white);
-    background: color-mix(in srgb, var(--primary) 10%, white);
-    color: var(--primary);
-    font-family: var(--mono);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
   }
 
   .topbar-right {
