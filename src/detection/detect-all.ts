@@ -74,8 +74,8 @@ export interface DetectAllInZipResult {
 
 /**
  * Detection options shared by all three public entry points. Every field is
- * optional; passing `{}` (or omitting opts entirely) yields Phase 0-compatible
- * defaults (level `"standard"`, no language override).
+ * optional; passing `{}` (or omitting opts entirely) yields default level
+ * `"standard"` plus per-input language auto-detection.
  */
 export interface DetectAllOptions {
   /**
@@ -87,7 +87,7 @@ export interface DetectAllOptions {
   readonly level?: Level;
   /**
    * Override auto-detected document language. When undefined, the runner
-   * calls `detectLanguage(normalizedText)` internally. Callers that KNOW the
+   * should run the auto-detected language for this input. Callers that KNOW the
    * language (e.g., a UI panel scoped to a single Korean document) can pass
    * `"ko"` to skip detection.
    */
@@ -113,17 +113,15 @@ export function detectAll(
   text: string,
   opts: DetectAllOptions = {},
 ): DetectAllResult {
-  const documentLanguage =
-    opts.language ?? detectLanguage(text);
+  const documentLanguage = opts.language ?? detectLanguage(text);
   const runOpts: {
     level: Level;
-    language?: "ko" | "en" | "mixed";
+    language: "ko" | "en" | "mixed";
   } = {
     level: opts.level ?? DEFAULT_LEVEL,
-    language: opts.language ?? "mixed",
+    language: documentLanguage,
   };
-  const { candidates, structuralDefinitions } =
-    runAllPhases(text, runOpts);
+  const { candidates, structuralDefinitions } = runAllPhases(text, runOpts);
   return { candidates, structuralDefinitions, documentLanguage };
 }
 

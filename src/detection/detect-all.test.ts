@@ -205,7 +205,7 @@ describe("detectAll", () => {
 
   it("preserves original bytes when normalization fires", () => {
     const fullwidth = "Cell: \uFF10\uFF11\uFF10-\uFF11\uFF12\uFF13\uFF14-\uFF15\uFF16\uFF17\uFF18";
-    const result = detectAll(fullwidth);
+    const result = detectAll(fullwidth, { language: "mixed" });
     expect(result.candidates).toEqual([
       {
         text: "\uFF10\uFF11\uFF10-\uFF11\uFF12\uFF13\uFF14-\uFF15\uFF16\uFF17\uFF18",
@@ -260,7 +260,7 @@ describe("detectAllInZip", () => {
     const zip = new JSZip();
     zip.file("word/document.xml", bodyWith("body@a.io"));
     zip.file("word/header1.xml", headerWith("12-3456789"));
-    zip.file("word/footer1.xml", footerWith("Footer: 010-1234-5678"));
+    zip.file("word/footer1.xml", footerWith("footer@a.io"));
     zip.file("word/footnotes.xml", footnotesWith("50,000원"));
     const kinds = new Set((await detectAllInZip(zip)).candidates.map((c) => c.scope.kind));
     expect(kinds).toEqual(new Set(["body", "header", "footer", "footnotes"]));
@@ -303,7 +303,7 @@ describe("detectAllInZip", () => {
 
   it("preserves walker order", async () => {
     const zip = new JSZip();
-    zip.file("word/footer1.xml", footerWith("010-1234-5678"));
+    zip.file("word/footer1.xml", footerWith("footer@a.io"));
     zip.file("word/header1.xml", headerWith("12-3456789"));
     zip.file("word/document.xml", bodyWith("kim@abc.kr"));
     zip.file("word/comments.xml", commentsWith("50,000원"));
@@ -535,7 +535,7 @@ describe("Phase 0 parity", () => {
     const zip = await loadFixtureZip();
     const legacy = await buildTargetsFromZip(zip);
     const fresh = await loadFixtureZip();
-    const next = await buildAllTargetsFromZip(fresh);
+    const next = await buildAllTargetsFromZip(fresh, { language: "mixed" });
     for (const target of legacy) {
       expect(next).toContain(target);
     }
@@ -545,7 +545,7 @@ describe("Phase 0 parity", () => {
     const text = "Contact kim@abc.kr at 010-1234-5678 and use tax ID 123-45-67890.";
     const legacy = new Set(detectPii(text).map((m) => m.original));
     const next = new Set(
-      detectAll(text)
+      detectAll(text, { language: "mixed" })
         .candidates.filter((c) => c.ruleId.startsWith("identifiers."))
         .map((c) => c.text),
     );
