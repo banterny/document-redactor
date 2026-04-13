@@ -6,9 +6,9 @@
     category: ManualCategory;
     alreadyDetected: ReadonlySet<string>;
     /**
-     * When true, the input is always expanded — no "+ 추가" button, no
+     * When true, the input is always expanded — no "Add" button, no
      * Cancel button, and after Add the input stays open for continuous
-     * entries. Used by the "기타 (그 외)" catch-all section where manual
+     * entries. Used by the "Other (catch-all)" section where manual
      * input is the whole purpose of the section.
      */
     alwaysOpen?: boolean;
@@ -40,14 +40,14 @@
     const trimmed = value.trim();
     if (trimmed.length === 0) return;
     if (trimmed.length > 200) {
-      error = "200자 이하로 입력하세요";
+      error = "Use 200 characters or fewer";
       return;
     }
     if (
       alreadyDetected.has(trimmed) ||
       appState.manualAdditions.get(category)?.has(trimmed)
     ) {
-      error = "이미 감지됨";
+      error = "Already detected";
       return;
     }
     appState.addManualCandidate(category, trimmed);
@@ -87,7 +87,7 @@
       userExpanded = true;
     }}
   >
-    + 추가
+    + Add
   </button>
 {:else}
   <div class="add-form">
@@ -96,7 +96,7 @@
       bind:value
       type="text"
       class="add-input"
-      placeholder="직접 입력…"
+      placeholder="Type a string to redact…"
       maxlength="200"
       aria-invalid={error !== null}
       oninput={() => {

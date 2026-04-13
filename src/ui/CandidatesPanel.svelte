@@ -1,8 +1,8 @@
 <!--
   Right panel — Phase 2 category review UI.
   Session-log reference ("Finding 1.3 — user insight"):
-  당사자 / 식별번호 / 금액 / 날짜·기간 / 법원·사건 / 추측,
-  with per-category "+ 추가" for under-cover and uncheck for over-cover.
+  parties / identifiers / amounts / dates / courts / heuristics,
+  with per-category manual add for under-cover and uncheck for over-cover.
 -->
 <script lang="ts">
   import CategorySection from "./CategorySection.svelte";
@@ -61,65 +61,65 @@
   const SECTION_SPECS: readonly SectionSpec[] = [
     {
       key: "literals",
-      label: "당사자",
-      subHint: "Auto-selected · 자동 선택됨",
+      label: "Parties",
+      subHint: "Auto-selected",
       category: "literals",
       canManualAdd: true,
     },
     {
       key: "defined",
-      label: "정의된 대리어",
-      subHint: "Kept as-is by default (D9 정책 — 독해성 유지)",
+      label: "Defined aliases",
+      subHint: "Kept as-is by default (D9 readability policy)",
       category: "defined",
       canManualAdd: false,
     },
     {
       key: "pii",
-      label: "식별번호 (PII)",
-      subHint: "주민번호 · 사업자번호 · 이메일 · 계좌 — 자동 검출",
+      label: "Identifiers (PII)",
+      subHint: "Resident IDs, business IDs, email, phones, bank accounts",
       category: "pii",
       canManualAdd: false,
     },
     {
       key: "financial",
-      label: "금액",
-      subHint: "한화 · USD · 외화 · 백분율 — Phase 1 financial rules",
+      label: "Amounts",
+      subHint: "KRW, USD, foreign currencies, percentages",
       category: "financial",
       canManualAdd: true,
     },
     {
       key: "temporal",
-      label: "날짜 / 기간",
-      subHint: "한국식 · ISO · 영문 · 기간 — Phase 1 temporal rules",
+      label: "Dates / periods",
+      subHint: "Korean, ISO, English, and duration patterns",
       category: "temporal",
       canManualAdd: true,
     },
     {
       key: "entities",
-      label: "법인 / 인물",
-      subHint: "주식회사 · 대표이사 · 서명자 — Phase 1 entities + structural",
+      label: "Organizations / people",
+      subHint: "Company markers, officer titles, signers, structural hints",
       category: "entities",
       canManualAdd: true,
     },
     {
       key: "legal",
-      label: "법원 / 사건",
-      subHint: "사건번호 · 법원명 · 법령 · 판례 — Phase 1 legal rules",
+      label: "Courts / matters",
+      subHint: "Case numbers, court names, statutes, precedents",
       category: "legal",
       canManualAdd: true,
     },
     {
       key: "heuristics",
-      label: "추측 (낮은 신뢰도)",
-      subHint: "휴리스틱 감지 — 검토 후 체크하세요",
+      label: "Heuristics (low confidence)",
+      subHint: "Heuristic matches that need review before selection",
       category: "heuristics",
       canManualAdd: false,
       warnStyle: true,
     },
     {
       key: "other",
-      label: "기타 (그 외)",
-      subHint: "자동 감지에서 누락된 항목 — 직접 입력해서 redaction 대상에 추가",
+      label: "Other (catch-all)",
+      subHint: "Add missed strings manually when detection did not catch them",
       category: "other",
       canManualAdd: true,
       alwaysOpenInput: true,
@@ -218,7 +218,7 @@
       });
     }
 
-    // "기타 (그 외)" — catch-all bucket. No engine-detected rows; only
+    // "Other (catch-all)" bucket. No engine-detected rows; only
     // user-typed entries via the section's AddCandidateInput. These still
     // count toward the redaction target set.
     const other: CategoryCandidate[] = [];

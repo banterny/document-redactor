@@ -1,15 +1,9 @@
 <!--
-  Topbar — brand + "0 network requests" badge + navigation stubs.
+  Topbar — brand + "0 network requests" badge.
 
   The "0 network requests" badge is a trust affordance (Invariant #2).
   It stays green for the entire session because the CSP meta tag and
   the ESLint ban guarantee zero network activity by construction.
-
-  "View source" and "Audit log" are intentional stubs in this commit.
-  D8.1 (SHA-256 self-hash modal) and D8.2 (hashed audit log table) are
-  separate modules we'll wire later — the links still render so the
-  layout matches the mock and so the tab order is stable when those
-  modals arrive.
 -->
 <script lang="ts">
   // No props, no state — the topbar is chrome.
@@ -19,19 +13,13 @@
   <div class="brand">
     <div class="brand-mark">R</div>
     <span class="brand-name">Redactor</span>
-    <span class="brand-sub">for lawyers · offline · view-source</span>
+    <span class="brand-sub">for lawyers · offline · local-only</span>
   </div>
   <div class="topbar-right">
     <div class="net-badge" title="Content-Security-Policy blocks every network request at the browser level">
       <span class="net-dot"></span>
       <span>0 network requests</span>
     </div>
-    <button type="button" class="topbar-link" disabled title="Coming in a later commit">
-      View source
-    </button>
-    <button type="button" class="topbar-link" disabled title="Coming in a later commit">
-      Audit log
-    </button>
   </div>
 </header>
 
@@ -87,7 +75,7 @@
   .topbar-right {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
   }
 
   .net-badge {
@@ -110,17 +98,5 @@
     border-radius: 50%;
     background: var(--ok);
     box-shadow: 0 0 0 3px #dcfce7;
-  }
-
-  .topbar-link {
-    font-size: 13px;
-    color: var(--ink-soft);
-    background: none;
-    border: none;
-    padding: 0;
-    font-weight: 500;
-    transition: color 0.15s;
-    cursor: not-allowed;
-    opacity: 0.6;
   }
 </style>

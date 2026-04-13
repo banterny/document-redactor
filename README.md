@@ -1,224 +1,304 @@
 # document-redactor
 
-[![CI](https://github.com/kipeum86/document-redactor/actions/workflows/ci.yml/badge.svg)](https://github.com/kipeum86/document-redactor/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/kipeum86/document-redactor?color=2563eb)](https://github.com/kipeum86/document-redactor/releases)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-0f172a.svg)](LICENSE)
-[![Bundle](https://img.shields.io/badge/bundle-~180%20KB-16a34a)](https://github.com/kipeum86/document-redactor/releases)
-[![No network](https://img.shields.io/badge/network-0%20requests-16a34a)](#the-trust-story--four-layers-of-no-network)
-[![No AI](https://img.shields.io/badge/AI-none-0f172a)](#what-it-is-what-it-isnt)
+<p align="center">
+  <img src="docs/assets/readme-hero.svg" alt="document-redactor hero banner" width="100%" />
+</p>
 
-[![한국어 README](https://img.shields.io/badge/lang-한국어-2563eb)](README.ko.md)
+<p align="center">
+  <a href="https://github.com/kipeum86/document-redactor/releases/latest">
+    <img alt="Download latest release" src="https://img.shields.io/badge/Download-latest%20release-0f766e?style=for-the-badge" />
+  </a>
+  <a href="README.ko.md">
+    <img alt="Open Korean README" src="https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-1d4ed8?style=for-the-badge" />
+  </a>
+  <a href="USAGE.md">
+    <img alt="Open usage guide" src="https://img.shields.io/badge/Guide-usage-7c3aed?style=for-the-badge" />
+  </a>
+  <a href="docs/RULES_GUIDE.md">
+    <img alt="Open rules guide" src="https://img.shields.io/badge/Rules-detection%20catalog-c2410c?style=for-the-badge" />
+  </a>
+</p>
 
-─────────────────────────────────────────────────────────────
+<p align="center">
+  <img alt="CI" src="https://img.shields.io/github/actions/workflow/status/kipeum86/document-redactor/ci.yml?branch=main&label=CI&style=flat-square" />
+  <img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache%202.0-0f172a?style=flat-square" />
+  <img alt="single HTML distribution" src="https://img.shields.io/badge/distribution-single%20HTML-0f172a?style=flat-square" />
+  <img alt="248 KB artifact" src="https://img.shields.io/badge/current%20build-248%20KB-166534?style=flat-square" />
+  <img alt="zero network requests" src="https://img.shields.io/badge/network-0%20requests-166534?style=flat-square" />
+  <img alt="rule-based engine" src="https://img.shields.io/badge/detection-rule--based-1d4ed8?style=flat-square" />
+  <img alt="AI none" src="https://img.shields.io/badge/AI-none-7f1d1d?style=flat-square" />
+</p>
 
-## The problem this solves
+<p align="center">
+  <strong>Offline DOCX redaction for legal work.</strong><br />
+  Open one local HTML file, review deterministic matches, and download a verified <code>.redacted.docx</code><br />
+  without sending the source document anywhere.
+</p>
 
-You want to run a contract — or an opinion, a brief, a memo, a judge's order — through ChatGPT, Claude, Perplexity, or any other LLM for a summary, a clause review, or a quick legal risk check. But the document has **company names, counterparty details, phone numbers, 주민등록번호, account numbers, case numbers**. You can't just upload it.
+> [!IMPORTANT]
+> This is the safety step before AI. `document-redactor` is intentionally not AI-powered. It is the local pre-upload filter you run before a contract, memo, pleading, or court document goes into any LLM.
 
-So every single time, you:
+## At A Glance
 
-1. Open the file in Word
-2. Manually delete, or `Ctrl+H` search-and-replace, every sensitive string
-3. Squint at the screen hoping nothing was missed
-4. Cross your fingers and paste
+<table>
+  <tr>
+    <td width="25%" valign="top">
+      <strong>One file</strong><br />
+      The shipped product is <code>document-redactor.html</code>. No installer, no backend, no asset tree, no auto-update channel.
+    </td>
+    <td width="25%" valign="top">
+      <strong>Rule-based</strong><br />
+      Detection is deterministic, auditable, and regression-testable. No remote inference and no hidden model behavior.
+    </td>
+    <td width="25%" valign="top">
+      <strong>Local-only</strong><br />
+      The app opens as a <code>file://</code> page, uses strict CSP, and is built around a zero-network runtime model.
+    </td>
+    <td width="25%" valign="top">
+      <strong>Verified output</strong><br />
+      Redaction is not trusted blindly. The output DOCX is re-parsed and checked before download.
+    </td>
+  </tr>
+</table>
 
-**`document-redactor` does all of that in one click.** Drop the file. Review what the tool found. Press Apply. Download the redacted copy. No internet connection, no installation, no terminal, no account, no upload — and a hash check on the download so you know the tool itself hasn't been tampered with on its way to you.
+## What Problem It Solves
 
-One HTML file, ~180 KB, runs in your browser, offline, from your disk.
+Legal teams increasingly want to send contracts, pleadings, memos, and court documents into AI assistants for summary, issue spotting, or clause review. The blocker is obvious: those files contain company names, people, phone numbers, IDs, bank data, case references, and other strings you should not upload raw.
 
-─────────────────────────────────────────────────────────────
+Manual redaction inside Word is slow, repetitive, and easy to get wrong.
 
-## What it is, what it isn't
+`document-redactor` turns that pre-upload cleanup into a local workflow:
 
-| ✅ What it is | ❌ What it isn't |
+1. Open one HTML file from disk.
+2. Drop a `.docx`.
+3. Review grouped candidates and inline highlights.
+4. Apply redaction.
+5. Download a verified `.redacted.docx`.
+
+## What It Is Vs. What It Is Not
+
+| What it is | What it is not |
 |---|---|
-| An offline tool that runs in your browser | A cloud service |
-| One HTML file (~180 KB) you download once | An installer or a native app |
-| A rule-based, deterministic redactor | An AI model — there is no model, no LLM, no "magic" |
-| A tool whose full source you can read and audit yourself | A black box you have to trust |
-| Apache 2.0-licensed, reviewable by you or your AI assistant | Proprietary software with hidden behavior |
+| An offline browser tool for legal DOCX redaction | A cloud redaction service |
+| One downloadable HTML artifact plus a hash sidecar | An installer, daemon, or desktop app |
+| A rule-based, deterministic review-and-redact pipeline | An AI model or probabilistic black box |
+| A product whose artifact and source can be audited directly | A system you must trust without inspection |
+| A pre-AI safety layer | A replacement for your downstream AI assistant |
 
-If someone tells you this tool "probably uses ChatGPT" or "sends your files somewhere for processing," here's the simplest test you can run yourself: **turn on airplane mode. Disconnect your WiFi. Unplug the ethernet cable.** Then open the tool and use it on a real document. Everything still works. The drop zone accepts your file, candidates get detected, redaction runs, the download button saves the output. A tool that needed the internet to function would fail at this point — this one doesn't, because it has no way to talk to the internet in the first place.
-
-─────────────────────────────────────────────────────────────
-
-## Quick start
-
-1. **Download** the latest release:
-   - [`document-redactor.html`](https://github.com/kipeum86/document-redactor/releases/latest/download/document-redactor.html) (the tool itself, one file)
-   - [`document-redactor.html.sha256`](https://github.com/kipeum86/document-redactor/releases/latest/download/document-redactor.html.sha256) (integrity sidecar)
-
-2. **Verify** the download matches what was published:
-
-   ```bash
-   sha256sum -c document-redactor.html.sha256
-   # expected output:
-   #   document-redactor.html: OK
-   ```
-
-   If you see `OK`, the file is byte-identical to what the author shipped. If you see anything else, **stop** — something between you and GitHub modified the file. Do not run it.
-
-3. **Open it.** Double-click the HTML file. It opens in your default browser as a `file://` URL. There is no install step, no permissions prompt, no network call. The page that loads is the whole tool.
-
-4. **Use it.** Drop a `.docx` file onto the drop zone. Review the detected candidates in the right panel. Click **Apply and verify** (or press ⌘/Ctrl + Enter). Download the redacted file as `{yourfile}.redacted.docx`.
-
-For a detailed walkthrough — including the candidate review model, keyboard shortcuts, troubleshooting, and how to handle non-contract documents (opinions, briefs, memos) — see **[USAGE.md](USAGE.md)**.
-
-─────────────────────────────────────────────────────────────
-
-## Why two files? (The `.sha256` sidecar)
-
-Every release ships **two** files: the tool itself and a tiny text file ending in `.sha256`. Here's why.
-
-Imagine you download the tool and then forward it to a colleague via Kakao, email, or a USB stick. Somewhere between you and them, the file passes through:
-
-- **Corporate proxies and DLP systems** that sometimes rewrite attachments
-- **Email gateways** that can modify MIME encodings
-- **Messaging apps** that re-compress or transcode files
-- **Malicious network intermediaries** (the classic "man in the middle" scenario)
-
-Any of these could quietly change the file — even a single byte — and your colleague would have no way to notice. For a legal tool that must run exactly as audited, that's unacceptable.
-
-The `.sha256` sidecar is the solution. It contains a 64-character **cryptographic fingerprint** of the original HTML file. Your colleague runs one command:
-
-```bash
-sha256sum -c document-redactor.html.sha256
-```
-
-- ✅ If the output says `document-redactor.html: OK` — the file is **byte-for-byte identical** to what the author published. Every bit matches. Safe to run.
-- ❌ If the output says anything else — **something between the author and them modified the file**. Do not run it. Re-download from the official releases page.
-
-**The sidecar is not a signature you have to trust the sidecar itself.** The fingerprint is mathematically derived from the HTML — changing either file by one character makes the check fail. The hash that matters is the one on the official [GitHub Releases page](https://github.com/kipeum86/document-redactor/releases/latest), publicly visible, built by CI from the tagged source commit. That's the ground truth.
-
-Think of it as a tamper-evident seal on an envelope: if the seal is intact, the letter inside hasn't been opened. The difference is that SHA-256 fingerprints cannot be forged.
-
-─────────────────────────────────────────────────────────────
-
-## How it works (briefly)
+## The Workflow
 
 ```mermaid
 flowchart LR
-    subgraph browser["Your browser tab &mdash; offline, no network"]
-        direction LR
-        A([Drop .docx]) --> B[Parse<br/>JSZip + raw XML]
-        B --> C[Detect<br/>PII regex<br/>+ your seeds]
-        C --> D{Review<br/>toggle candidates}
-        D --> E[Redact + Verify<br/>cross-run rewrite]
-        E --> F([Download<br/>.redacted.docx<br/>+ SHA-256])
-    end
+    A[Open document-redactor.html] --> B[Drop .docx]
+    B --> C[Parse DOCX ZIP and XML locally]
+    C --> D[Detect candidates with rules]
+    D --> E[Review by section and inline preview]
+    E --> F[Apply redaction]
+    F --> G[Round-trip verify output]
+    G --> H[Download .redacted.docx and SHA-256 sidecar]
 ```
 
-Rounded caps are I/O (file in, file out). Rectangles are fully automated steps. The diamond is the one place a human decides anything — you review the detected candidates and toggle which ones to redact. **Everything inside the subgraph runs in your browser tab.** No network call, no server round-trip, no background worker. The tool loads the `.docx` as a zip (Word files are zips of XML), walks every text-bearing scope (body, footnotes, endnotes, comments, headers, footers), detects candidates via regex + your seeds, lets you review and toggle, then rewrites the XML in place and generates a byte-stable output with a matching SHA-256 hash.
+## Release Snapshot
 
-See [USAGE.md](USAGE.md) for the step-by-step guide.
+<table>
+  <tr>
+    <td width="20%" valign="top">
+      <strong>Artifact</strong><br />
+      <code>document-redactor.html</code>
+    </td>
+    <td width="20%" valign="top">
+      <strong>Current checked size</strong><br />
+      248 KB
+    </td>
+    <td width="20%" valign="top">
+      <strong>Integrity sidecar</strong><br />
+      89 bytes
+    </td>
+    <td width="20%" valign="top">
+      <strong>Runtime network calls</strong><br />
+      0
+    </td>
+    <td width="20%" valign="top">
+      <strong>Automated coverage</strong><br />
+      1,700+ tests
+    </td>
+  </tr>
+</table>
 
-─────────────────────────────────────────────────────────────
+Current checked release artifact on April 13, 2026:
 
-## Why a single HTML file
+- `document-redactor.html` SHA-256: `65b580104ec2507a08538a9d0e1c06fcd29cdeffc35d809f2f93b3e6912c60be`
+- Verified locally with `shasum -a 256 -c document-redactor.html.sha256`
 
-One HTML file is an unusual choice in 2026. Most tools ship as web apps, desktop apps, or CLIs. Here's the case for file-based distribution:
+## What The Current Release Does
 
-1. **Offline by construction.** There's nothing to connect to. The moment the file loads, the tool is complete. No lazy-loaded chunks, no CDN, no font server. If your WiFi dies mid-redaction, nothing changes.
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <strong>Local DOCX traversal</strong><br />
+      Walks body, headers, footers, footnotes, endnotes, comments, and relationship references inside the DOCX package.
+    </td>
+    <td width="33%" valign="top">
+      <strong>Structured review UX</strong><br />
+      Groups candidates by parties, aliases, identifiers, amounts, dates, entities, legal references, heuristics, and catch-all additions.
+    </td>
+    <td width="33%" valign="top">
+      <strong>Verification-first export</strong><br />
+      Re-checks the generated output, blocks true leaks, and separates leak failures from sanity warnings.
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
+      <strong>Inline preview</strong><br />
+      Shows the document text with selection-aware highlights so review happens in context, not in a blind list.
+    </td>
+    <td width="33%" valign="top">
+      <strong>OOXML leak hardening</strong><br />
+      Flattens risky field and hyperlink structures, strips comments, scrubs metadata, and normalizes redaction across split runs.
+    </td>
+    <td width="33%" valign="top">
+      <strong>Manual recovery paths</strong><br />
+      Lets users add missed strings, jump back to surviving items, and override sanity-only warnings without weakening leak protection.
+    </td>
+  </tr>
+</table>
 
-2. **Auditable in a single read.** The whole program is ~5,000 lines of generated JavaScript and CSS in one file. You can `cat` it, `grep` it, or paste it into an LLM and ask "is there anything in here that talks to the network?" The answer is verifiable in minutes.
+For the public detection catalog, see [docs/RULES_GUIDE.md](docs/RULES_GUIDE.md).
 
-3. **Distributable without infrastructure.** No server to maintain, no domain to renew, no account database to protect. You can email it, put it on a USB stick, share it over Kakao. Recipients verify integrity with `sha256sum`.
+## Why This Architecture
 
-4. **No update surface.** The tool cannot update itself. A malicious update cannot reach you. The version you downloaded is the version you run, forever. When a new version ships, you choose whether to download it.
+### Single HTML instead of a web app
 
-The trade-off is that v1 does not support features that genuinely need a server (team collaboration, shared audit logs, central policy enforcement). That's a deliberate choice — the single-file model is the product, not a limitation.
+- Easier to use: download once, double-click, redact.
+- Easier to audit: one shipped artifact, not a service mesh.
+- Easier to distribute: GitHub Releases, USB, email, Kakao, shared drives.
+- Easier to trust: no backend means no server-side document path to defend.
 
-─────────────────────────────────────────────────────────────
+### Rule-based instead of ML or an LLM
 
-## The trust story — four layers of "no network"
+- Sensitive documents never need model inference.
+- Behavior is deterministic and explainable.
+- Regression testing is straightforward.
+- The artifact stays small enough to remain practical as a local HTML tool.
 
-The promise is that this tool cannot phone home with your documents. That promise is enforced at four independent layers:
+This choice is deliberate. The AI assistant comes after redaction, not inside it.
 
-| Layer | Mechanism | How you verify |
+### Raw OOXML handling instead of high-level document abstractions
+
+DOCX files are ZIP archives of XML parts. Using `JSZip` plus direct WordprocessingML traversal gives the project the control it needs to:
+
+- detect matches across split text runs,
+- scan more than just the body text,
+- rewrite only the affected segments,
+- verify the exact output it produces.
+
+### Svelte 5 plus single-file bundling
+
+The UI needs to feel modern without blowing up the artifact. Svelte 5 and `vite-plugin-singlefile` give the project:
+
+- fast local interactivity,
+- a small runtime footprint,
+- one-file packaging that still supports a real review workflow.
+
+## Quick Start
+
+### 1. Download the release
+
+- [`document-redactor.html`](https://github.com/kipeum86/document-redactor/releases/latest/download/document-redactor.html)
+- [`document-redactor.html.sha256`](https://github.com/kipeum86/document-redactor/releases/latest/download/document-redactor.html.sha256)
+
+### 2. Verify the artifact
+
+```bash
+sha256sum -c document-redactor.html.sha256
+# expected output:
+# document-redactor.html: OK
+```
+
+If `sha256sum` is not available on your Mac:
+
+```bash
+shasum -a 256 -c document-redactor.html.sha256
+```
+
+### 3. Open the tool
+
+Double-click `document-redactor.html`. It opens as a `file://` page in your browser. There is no install step and no account setup.
+
+### 4. Run a redaction
+
+- Drop a `.docx`
+- Review candidates
+- Click `Apply and verify`
+- Download `{original}.redacted.docx`
+
+For a detailed walkthrough, see [USAGE.md](USAGE.md). For the Korean guide, see [USAGE.ko.md](USAGE.ko.md).
+
+## Trust Model
+
+| Layer | Mechanism | Why it matters |
 |---|---|---|
-| **Source code** | ESLint rule `no-restricted-syntax` bans `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `navigator.sendBeacon`, and dynamic `import()` at every commit | `bun run lint` on a checkout of the source |
-| **Bundle** | `vite.config.ts` disables the modulepreload polyfill (which would otherwise inject a `fetch()` call). Build-time ship-gate test asserts zero `fetch(` tokens, zero `XMLHttpRequest`, zero `new WebSocket` in the output HTML | `grep -c 'fetch(' document-redactor.html` → `0` |
-| **Runtime** | Embedded Content-Security-Policy meta tag: `default-src 'none'; connect-src 'none'; ...`. Any attempt by the running page to open a socket is blocked by the browser before it leaves the tab | Open DevTools → Network tab → try to use the tool → observe zero requests |
-| **Distribution** | Every release ships with a SHA-256 sidecar. The tool you download has a hash matching what the CI pipeline built from the tagged commit. History, diffs, and build logs are public on GitHub | `sha256sum -c document-redactor.html.sha256` |
+| Source | ESLint bans `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon`, and similar primitives | Network code is stopped before it casually enters the app |
+| Build | Single-file ship gate rejects external JS or CSS references and writes a SHA-256 sidecar | The release stays auditable as one artifact |
+| Runtime | Embedded CSP uses `default-src 'none'` and `connect-src 'none'` | The browser blocks outbound requests at execution time |
+| Export | Round-trip verification re-parses the generated DOCX | The app does not silently ship a leaky output |
 
-Each layer is independent. Defeating one still leaves three in place. This is not "security theater" — the actual code-level bans are what make the tool behave as promised; the CSP is what stops a theoretical bundle-level bypass; the hash is what prevents man-in-the-middle substitution during distribution.
+> [!NOTE]
+> The privacy story here is not just policy language. It is enforced in source code, build rules, runtime policy, and export verification.
 
-─────────────────────────────────────────────────────────────
+## Tech Stack
 
-## Tech stack
-
-| Layer | Choice | Why |
+| Layer | Choice | Why this choice |
 |---|---|---|
-| Package manager | **Bun 1.x** | Fast install, built-in TypeScript, no extra toolchain |
-| Bundler | **Vite 8** | Modern DX, first-class ES modules, tight plugin ecosystem |
-| UI framework | **Svelte 5** (runes mode) | Smallest runtime footprint, fine-grained reactivity, ~30 KB overhead |
-| Single-file packaging | **vite-plugin-singlefile** | Inlines every JS chunk and CSS sheet into the HTML |
-| DOCX parsing + mutation | **JSZip** + raw XML manipulation | No write-only libraries (`docx.js` was rejected at Gate 0 — write-only API) |
-| Cross-run text handling | Custom **coalescer** module | Word splits runs like `<w:t>ABC Corpo</w:t><w:t>ration</w:t>`; the coalescer reassembles a logical text view, finds matches, then surgically rewrites only the affected runs |
-| Hashing | **Web Crypto SubtleCrypto** (browser) + **node:crypto** (build) | Platform primitives, no dependencies |
-| Testing | **Vitest 2** | Vite-native, fast, TypeScript-first. 422 tests in ~1.5 seconds |
-| Type checking | **TypeScript 5 strict** + **svelte-check 4** | `strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess` |
-| Linting | **ESLint 9** (flat config) | Custom `no-restricted-syntax` rules enforce the "no network" invariant at the source level |
-| CI | **GitHub Actions** on `ubuntu-latest` with Bun | Free for public repos, ~40 seconds per run |
+| Distribution | Single `document-redactor.html` + `.sha256` | Simplest release artifact and easiest thing to verify |
+| Package manager | Bun 1.x | Fast local workflow and a light toolchain |
+| Build | Vite 8 | Clear plugin hooks and dependable modern bundling |
+| Single-file packaging | `vite-plugin-singlefile` | Inlines JS and CSS into one shipped HTML file |
+| UI | Svelte 5 | Fine-grained reactivity with a small runtime |
+| DOCX engine | `JSZip` + raw OOXML traversal | Precise control over read, rewrite, and verify |
+| Detection | Rule-based regex + structural classifiers | Deterministic, inspectable, lightweight |
+| Verification | Round-trip scan + word-count sanity + SHA-256 | Catches leaks, flags suspicious over-redaction, verifies artifacts |
+| Quality gates | Vitest + strict TypeScript + `svelte-check` | Strong regression safety for a trust-sensitive product |
 
-**What's deliberately absent:** no React, no web framework, no CSS-in-JS runtime, no state management library, no date-handling library, no i18n framework, no analytics, no error reporting, no telemetry, no feature flags, no A/B testing, no package lock-file checks that call out to the network.
+## Public Repo Surface
 
-─────────────────────────────────────────────────────────────
+- Product docs: [README.ko.md](README.ko.md), [USAGE.md](USAGE.md), [USAGE.ko.md](USAGE.ko.md), [docs/RULES_GUIDE.md](docs/RULES_GUIDE.md)
+- Source: [`src/`](src)
+- Release output: `document-redactor.html`
+- Integrity file: `document-redactor.html.sha256`
 
-## Known limitations
+Internal phase briefs and planning notes are intentionally being removed from the public git surface going forward.
 
-These are not bugs — they are things v1 deliberately does not do. Most are planned for v1.x.
+## Known Limitations
 
-- **DOCX only in v1 — PDF support is planned for a future update.** The engine is built around Word's zip-of-XML structure. PDF uses an entirely different content model (coordinate-based text runs in a binary object tree), so it needs its own pipeline. It's on the roadmap, not in v1. For now, convert PDFs to DOCX first (Word, Google Docs, or your PDF tool's export feature) and run the result through this tool.
-- **Level picker is cosmetic in v1.** Only the **Standard** rule set runs. The Conservative and Paranoid options are UI stubs. Planned for v1.1.
-- **No click-to-select in the document preview.** The preview pane is a placeholder explaining that candidate review happens in the right panel. A full WordprocessingML → HTML renderer is a separate module-scale effort planned for v1.1 or v1.2.
-- **View source button is disabled.** A tooltip explains why. Planned for v1.1 — the self-hash modal will compute the running file's own SHA-256 and compare it against the hash published on the GitHub Release page, giving you in-app confirmation that the tab you're looking at is the real tool. The sibling **Audit log** button from the early mocks has been **removed from the roadmap** — this tool is designed for incognito, one-shot use where leaving no state is a feature, not a limitation.
-- **Layout degrades to 2-column below 720 px.** The 3-column desktop layout needs ≥1024 px to feel comfortable.
-- **No OCR.** If your DOCX contains images of text (scanned PDFs imported to Word), the text inside those images is not processed. The tool handles text runs, not pixels. OCR is not on the roadmap — browser-based OCR engines are ~10–30 MB, which would break the single-file distribution model. Use a separate OCR tool first (Adobe Acrobat, macOS Preview, 한글, etc.) to extract a text layer, then run the result here.
-- **No embedded object traversal.** OLE-embedded Excel/PowerPoint objects are not walked into. Table cells in native DOCX tables **are** handled.
-- **No SmartArt or WordArt text.** These are special OOXML constructs outside v1's scope.
-- **Tested primarily against bilingual contracts.** The engine is text-based and works on any DOCX, but v1's fixture corpus is contract-focused. Opinions, briefs, memos, and internal notes all work in practice — see [USAGE.md](USAGE.md#non-contract-documents) for guidance.
+- DOCX only. PDF requires a different pipeline.
+- The preview is review-oriented, not a pixel-faithful Word layout clone.
+- `Standard` is the only implemented redaction level today.
+- No OCR for text embedded inside images.
+- No traversal into embedded OLE objects.
+- No SmartArt or WordArt extraction.
 
-─────────────────────────────────────────────────────────────
-
-## For developers
+## Developer Workflow
 
 ```bash
 git clone https://github.com/kipeum86/document-redactor.git
 cd document-redactor
 bun install
-bun run dev         # Vite dev server on 127.0.0.1:5173
-bun run test        # 422 tests, ~1.5s
-bun run typecheck   # tsc --noEmit + svelte-check
-bun run lint        # ESLint (enforces the no-network invariant)
-bun run build       # Produces dist/document-redactor.html + .sha256
+bun run test
+bun run typecheck
+bun run lint
+bun run build
+open dist/document-redactor.html
 ```
 
-The test suite runs a real `vite build` as part of the ship-gate check, so `bun run test` is the most comprehensive single command — it exercises the engine, the UI logic, and the production build end-to-end.
+Notes:
 
-Source layout:
-
-```
-src/
-├── detection/      PII regex sweep + keyword suggester
-├── docx/           DOCX I/O: coalescer, scope walker, redactor, verifier
-├── finalize/       SHA-256 + word-count sanity + ship-gate orchestrator
-├── propagation/    Variant propagation + defined-term classifier
-└── ui/             Svelte 5 components + state machine + engine wrapper
-```
-
-─────────────────────────────────────────────────────────────
-
-## Inspiration
-
-Inspired by [Tan Sze Yao's Offline-Redactor](https://thegreatsze.github.io/Offline-Redactor/).
-
-─────────────────────────────────────────────────────────────
+- For browser QA, test the built `dist/document-redactor.html`, not the dev server.
+- The repository currently carries 1,700+ automated tests across detection, DOCX rewriting, verification, UI state, and ship gates.
+- `dist/` is ignored in git; releases should publish the built HTML and its `.sha256` sidecar from CI or from a verified local build.
 
 ## License
 
-[Apache License 2.0](LICENSE). Use it, modify it, redistribute it, sell it — subject to the terms in the LICENSE file, which include a patent grant and require retaining the copyright and attribution notices.
+[Apache License 2.0](LICENSE)
 
-─────────────────────────────────────────────────────────────
-
-_Built by [@kipeum86](https://github.com/kipeum86)._
+Built by [@kipeum86](https://github.com/kipeum86).

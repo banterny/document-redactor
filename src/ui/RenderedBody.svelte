@@ -121,17 +121,17 @@
   function scopeLabel(scope: Scope): string {
     switch (scope.kind) {
       case "body":
-        return "본문";
+        return "Body";
       case "header":
-        return `머리글 ${scopeNumber(scope)}`.trim();
+        return `Header ${scopeNumber(scope)}`.trim();
       case "footer":
-        return `바닥글 ${scopeNumber(scope)}`.trim();
+        return `Footer ${scopeNumber(scope)}`.trim();
       case "footnotes":
-        return "각주";
+        return "Footnotes";
       case "endnotes":
-        return "미주";
+        return "Endnotes";
       case "comments":
-        return "메모";
+        return "Comments";
     }
   }
 
@@ -150,7 +150,7 @@
     <section class="scope-block">
       <h3 class="scope-label">{scope.label}</h3>
       {#if scope.empty}
-        <p class="scope-empty">(비어 있음)</p>
+        <p class="scope-empty">(empty)</p>
       {:else}
         {#each scope.paragraphs as paragraph (paragraph.key)}
           {#if paragraph.empty}

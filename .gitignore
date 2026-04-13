@@ -45,7 +45,8 @@ document-redactor-mock-*.html
 mocks/
 TODOS.md
 
-# Superpowers workflow artifacts (specs, plans, worklogs)
+# Internal planning / workflow artifacts
+docs/phases/
 docs/superpowers/
 
 # Private scratchpads

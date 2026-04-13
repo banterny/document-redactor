@@ -19,8 +19,8 @@ export type UiPiiKind =
   (typeof IDENTIFIER_SUBCATEGORY_TO_KIND)[IdentifierSubcategory];
 
 export const PII_KIND_LABELS: Readonly<Record<UiPiiKind, string>> = {
-  rrn: "주민등록번호",
-  brn: "사업자등록번호",
+  rrn: "resident registration number · KR",
+  brn: "business registration number · KR",
   ein: "US EIN",
   "phone-kr": "phone · KR",
   "phone-kr-landline": "phone · KR landline",

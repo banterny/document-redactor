@@ -110,9 +110,9 @@
     <div class="hero">
       <h1>Offline DOCX redactor</h1>
       <p class="hero-sub">
-        Drop a contract. We'll find the party names, emails, phones, 주민번호,
-        and 사업자번호 — you review, click Apply, and download a redacted copy.
-        Nothing leaves your browser.
+        Drop a contract. We'll find party names, emails, phones, resident
+        registration numbers, and business registration numbers. You review,
+        click Apply, and download a redacted copy. Nothing leaves your browser.
       </p>
     </div>
     <div
@@ -179,7 +179,7 @@
     {#await loadRenderedDoc(phase.bytes)}
       <div class="parse-progress">
         <div class="spinner" aria-hidden="true"></div>
-        <p>렌더링 중…</p>
+        <p>Rendering preview…</p>
       </div>
     {:then renderedDoc}
       <RenderedBody {renderedDoc} analysis={phase.analysis} />
@@ -298,14 +298,14 @@
         type="button"
         onclick={downloadReport}
       >
-        경고를 이해하고 다운로드
+        Download anyway
       </button>
       <button
         class="btn-secondary"
         type="button"
         onclick={() => appState.backToReview()}
       >
-        검토로 돌아가기
+        Back to review
       </button>
       <button class="btn-secondary" type="button" onclick={() => appState.reset()}>
         Start over
@@ -343,7 +343,7 @@
                 type="button"
                 onclick={() => appState.reviewCandidate(s.text)}
               >
-                이 항목 검토
+                Review this item
               </button>
             </li>
           {/each}
@@ -363,23 +363,23 @@
         type="button"
         onclick={() => appState.reviewCandidate(phase.report.verify.survived[0]!.text)}
       >
-        첫 항목부터 검토
+        Review from first item
       </button>
       <button
         class="btn-secondary"
         type="button"
         onclick={() => appState.backToReview()}
       >
-        검토로 돌아가기
+        Back to review
       </button>
       <button class="btn-secondary" type="button" onclick={() => appState.reset()}>
         Start over
       </button>
     </div>
     <p class="verifyfail-hint">
-      `이 항목 검토` 는 현재 선택 상태를 유지한 채 검토 화면으로 돌아가
-      해당 문자열에 포커스를 줍니다. 누출이 남은 상태에서는 다운로드가 계속
-      차단됩니다.
+      `Review this item` returns to the review screen without changing the
+      current selections and focuses that exact string. Download stays blocked
+      until the surviving leak is fixed.
     </p>
   {:else if phase.kind === "fatalError"}
     <div class="error-card">
