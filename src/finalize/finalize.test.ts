@@ -189,6 +189,7 @@ describe("isShippable", () => {
             targetId: buildSelectionTargetId("auto", "hello"),
             text: "hello",
             scope: { kind: "body" as const, path: "word/document.xml" },
+            surface: "text" as const,
             count: 1,
           },
         ],

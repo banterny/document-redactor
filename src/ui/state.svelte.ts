@@ -17,9 +17,11 @@
  *   - idle          — nothing loaded. Drop zone is the main affordance.
  *   - parsing       — bytes received, analysis running. Pipeline view.
  *   - postParse     — analysis done, candidates ready for review.
- *   - redacting     — user clicked Apply, engine running. Locked.
- *   - downloadReady — verify + sanity both clean. Green banner + SHA-256.
- *   - downloadWarning — verify clean, but sanity exceeded threshold. Amber warning.
+ *   - redacting     — user clicked Apply, pass 1 running. Locked.
+ *   - repairing     — pass 1 found survivors; one guided retry is running.
+ *   - downloadReady — verify clean, no warning, no repair needed.
+ *   - downloadRepaired — guided retry succeeded with no warning left.
+ *   - downloadWarning — verify clean, but format/over-redaction warning remains.
  *   - verifyFail    — sensitive text survived. Red banner, download blocked.
  *   - fatalError    — something threw before we could render a report.
  *
@@ -28,7 +30,10 @@
  * state machine's allowed moves.
  */
 
-import type { FinalizedReport } from "../finalize/finalize.js";
+import {
+  classifyGuidedReport,
+  type GuidedFinalizeReport,
+} from "../finalize/guided-recovery.js";
 import {
   analyzeZip,
   applyRedaction,
@@ -61,17 +66,30 @@ export type AppPhase =
       readonly analysis: Analysis;
     }
   | {
+      readonly kind: "repairing";
+      readonly fileName: string;
+      readonly bytes: Uint8Array;
+      readonly analysis: Analysis;
+    }
+  | {
       readonly kind: "downloadReady";
       readonly fileName: string;
-      readonly report: FinalizedReport;
+      readonly report: GuidedFinalizeReport;
       /** Preserved so the user can return to review after a clean pass. */
+      readonly bytes: Uint8Array;
+      readonly analysis: Analysis;
+    }
+  | {
+      readonly kind: "downloadRepaired";
+      readonly fileName: string;
+      readonly report: GuidedFinalizeReport;
       readonly bytes: Uint8Array;
       readonly analysis: Analysis;
     }
   | {
       readonly kind: "downloadWarning";
       readonly fileName: string;
-      readonly report: FinalizedReport;
+      readonly report: GuidedFinalizeReport;
       /** Preserved so the user can return to review after a warning. */
       readonly bytes: Uint8Array;
       readonly analysis: Analysis;
@@ -79,7 +97,7 @@ export type AppPhase =
   | {
       readonly kind: "verifyFail";
       readonly fileName: string;
-      readonly report: FinalizedReport;
+      readonly report: GuidedFinalizeReport;
       /** Preserved so the user can return to review and fix selections. */
       readonly bytes: Uint8Array;
       readonly analysis: Analysis;
@@ -131,11 +149,9 @@ function createManualAdditions(): Map<ManualCategory, Set<string>> {
 }
 
 export function classifyFinalizedReportPhase(
-  report: FinalizedReport,
-): "downloadReady" | "downloadWarning" | "verifyFail" {
-  if (!report.verify.isClean) return "verifyFail";
-  if (!report.wordCount.sane) return "downloadWarning";
-  return "downloadReady";
+  report: GuidedFinalizeReport,
+): "downloadReady" | "downloadRepaired" | "downloadWarning" | "verifyFail" {
+  return classifyGuidedReport(report);
 }
 
 function manualCategoryToSection(
@@ -458,12 +474,18 @@ class AppState {
     this.phase = { kind: "redacting", fileName, bytes, analysis };
 
     try {
-      const report = await applyRedaction(bytes, analysis, this.selections);
+      const report = await applyRedaction(bytes, analysis, this.selections, {
+        onRepairing: () => {
+          this.phase = { kind: "repairing", fileName, bytes, analysis };
+        },
+      });
       const nextPhase = classifyFinalizedReportPhase(report);
       if (nextPhase === "verifyFail") {
         this.phase = { kind: "verifyFail", fileName, report, bytes, analysis };
       } else if (nextPhase === "downloadWarning") {
         this.phase = { kind: "downloadWarning", fileName, report, bytes, analysis };
+      } else if (nextPhase === "downloadRepaired") {
+        this.phase = { kind: "downloadRepaired", fileName, report, bytes, analysis };
       } else {
         this.phase = { kind: "downloadReady", fileName, report, bytes, analysis };
       }
@@ -487,7 +509,8 @@ class AppState {
     if (
       this.phase.kind !== "verifyFail" &&
       this.phase.kind !== "downloadWarning" &&
-      this.phase.kind !== "downloadReady"
+      this.phase.kind !== "downloadReady" &&
+      this.phase.kind !== "downloadRepaired"
     ) {
       return;
     }
@@ -499,7 +522,8 @@ class AppState {
     if (
       this.phase.kind !== "verifyFail" &&
       this.phase.kind !== "downloadWarning" &&
-      this.phase.kind !== "downloadReady"
+      this.phase.kind !== "downloadReady" &&
+      this.phase.kind !== "downloadRepaired"
     ) {
       return;
     }

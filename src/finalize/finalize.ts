@@ -126,7 +126,7 @@ export async function finalizeRedaction(
   //    mutable field at runtime — see JSZip's docs for JSZipObject.
   for (const name of Object.keys(zip.files)) {
     const entry = zip.files[name];
-    if (entry !== undefined && !entry.dir) {
+    if (entry !== undefined) {
       (entry as unknown as { date: Date }).date = new Date(0);
     }
   }

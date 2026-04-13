@@ -6,7 +6,6 @@ import {
   buildRepairPlan,
   classifyGuidedReport,
   runGuidedRecovery,
-  type GuidedFinalizeReport,
 } from "./guided-recovery.js";
 
 function makeResolvedTarget(
@@ -76,6 +75,9 @@ describe("guided-recovery", () => {
       repairedSurvivorCount: 0,
       initialSurvivorCount: 0,
       finalSurvivorCount: 0,
+      touchedScopePaths: [],
+      touchedNonBodyScope: false,
+      touchedFieldOrRelsSurface: false,
     });
     expect(classifyGuidedReport(result)).toBe("downloadReady");
   });
@@ -126,8 +128,94 @@ describe("guided-recovery", () => {
       repairedSurvivorCount: 1,
       initialSurvivorCount: 1,
       finalSurvivorCount: 0,
+      touchedScopePaths: ["word/header1.xml"],
+      touchedNonBodyScope: true,
+      touchedFieldOrRelsSurface: false,
     });
-    expect(classifyGuidedReport(result)).toBe("downloadRepaired");
+    expect(result.warningReasons).toEqual(["repairTouchedNonBodyScopes"]);
+    expect(classifyGuidedReport(result)).toBe("downloadWarning");
+  });
+
+  it("classifies repaired leaks in rel targets as a clean warning state", async () => {
+    const originalBytes = new Uint8Array([7, 7, 7]);
+    const selectedTargets = [makeResolvedTarget("contact@pearlabyss.com")];
+    const pass1 = makeReport({
+      verifyIsClean: false,
+      survived: [
+        {
+          targetId: "auto:contact@pearlabyss.com",
+          text: "contact@pearlabyss.com",
+          scope: {
+            kind: "rels",
+            path: "word/_rels/document.xml.rels",
+          } as never,
+          count: 1,
+          surface: "rels",
+        },
+      ],
+    });
+
+    const result = await runGuidedRecovery(
+      {
+        originalBytes,
+        selectedTargets,
+        pass1Report: pass1,
+      },
+      {
+        runRepairPass: async () => makeReport({ verifyIsClean: true }),
+      },
+    );
+
+    expect(result.warningReasons).toEqual([
+      "repairTouchedNonBodyScopes",
+      "repairTouchedFieldOrRelsSurface",
+    ]);
+    expect(classifyGuidedReport(result)).toBe("downloadWarning");
+  });
+
+  it("keeps the report blocking when the one repair retry still leaves survivors", async () => {
+    const originalBytes = new Uint8Array([5, 5, 5]);
+    const selectedTargets = [makeResolvedTarget("ABC Corporation")];
+    const pass1 = makeReport({
+      verifyIsClean: false,
+      survived: [
+        {
+          targetId: "auto:ABC Corporation",
+          text: "ABC Corporation",
+          scope: { kind: "body", path: "word/document.xml" },
+          count: 1,
+          surface: "text",
+        },
+      ],
+    });
+
+    const pass2 = makeReport({
+      verifyIsClean: false,
+      survived: [
+        {
+          targetId: "auto:ABC Corporation",
+          text: "ABC Corporation",
+          scope: { kind: "body", path: "word/document.xml" },
+          count: 1,
+          surface: "text",
+        },
+      ],
+    });
+
+    const result = await runGuidedRecovery(
+      {
+        originalBytes,
+        selectedTargets,
+        pass1Report: pass1,
+      },
+      {
+        runRepairPass: async () => pass2,
+      },
+    );
+
+    expect(result.repair.finalSurvivorCount).toBe(1);
+    expect(result.warningReasons).toEqual([]);
+    expect(classifyGuidedReport(result)).toBe("verifyFail");
   });
 
   it("derives a deterministic exact-literal repair plan from pass-1 survivors", () => {
@@ -155,41 +243,3 @@ describe("guided-recovery", () => {
     expect(plan.touchedScopePaths).toEqual(["word/_rels/document.xml.rels"]);
   });
 });
-
-declare module "./guided-recovery.js" {
-  export type GuidedFinalizeReport = FinalizedReport & {
-    readonly repair: {
-      readonly attempted: boolean;
-      readonly repairedSurvivorCount: number;
-      readonly initialSurvivorCount: number;
-      readonly finalSurvivorCount: number;
-    };
-    readonly warningReasons: readonly string[];
-  };
-
-  export function buildRepairPlan(
-    selectedTargets: readonly ResolvedRedactionTarget[],
-    survived: NonNullable<FinalizedReport["verify"]["survived"]>,
-  ): {
-    readonly targets: readonly ResolvedRedactionTarget[];
-    readonly touchedScopePaths: readonly string[];
-  };
-
-  export function classifyGuidedReport(
-    report: GuidedFinalizeReport,
-  ): "downloadReady" | "downloadRepaired" | "downloadWarning" | "verifyFail";
-
-  export function runGuidedRecovery(
-    params: {
-      readonly originalBytes: Uint8Array;
-      readonly selectedTargets: readonly ResolvedRedactionTarget[];
-      readonly pass1Report: FinalizedReport;
-    },
-    deps?: {
-      readonly runRepairPass?: (
-        bytes: Uint8Array,
-        repairPlan: ReturnType<typeof buildRepairPlan>,
-      ) => Promise<FinalizedReport>;
-    },
-  ): Promise<GuidedFinalizeReport>;
-}

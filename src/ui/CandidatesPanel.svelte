@@ -319,6 +319,13 @@
         Cross-run substitution, metadata scrub, round-trip verify.
       </p>
     </div>
+  {:else if phase.kind === "repairing"}
+    <div class="panel-head">
+      <h2 class="panel-title">Auto-repairing…</h2>
+      <p class="panel-sub">
+        Pass 1 found survivors. Retrying once from the original file.
+      </p>
+    </div>
   {:else if phase.kind === "downloadReady"}
     <div class="panel-head">
       <h2 class="panel-title" style="color: var(--ok)">Ready to download</h2>
@@ -327,11 +334,20 @@
         0 leaks
       </p>
     </div>
+  {:else if phase.kind === "downloadRepaired"}
+    <div class="panel-head">
+      <h2 class="panel-title" style="color: var(--ok)">Auto-repair succeeded</h2>
+      <p class="panel-sub">
+        {phase.report.repair.repairedSurvivorCount} surviving item(s) repaired ·
+        0 leaks
+      </p>
+    </div>
   {:else if phase.kind === "downloadWarning"}
     <div class="panel-head">
       <h2 class="panel-title" style="color: var(--warn)">Review warning</h2>
       <p class="panel-sub">
-        No leaks found. Review broad selections or download from the main panel.
+        No leaks found. Review {phase.report.warningReasons.length} warning reason(s)
+        or download from the main panel.
       </p>
     </div>
   {:else if phase.kind === "verifyFail"}
@@ -340,7 +356,7 @@
         Sensitive text survived
       </h2>
       <p class="panel-sub">
-        Download is blocked until the survived strings are reviewed.
+        Auto-repair was attempted. Download is blocked until the survivors are reviewed.
       </p>
     </div>
   {:else if phase.kind === "fatalError"}

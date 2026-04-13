@@ -72,6 +72,7 @@
   function downloadReport(): void {
     if (
       phase.kind !== "downloadReady" &&
+      phase.kind !== "downloadRepaired" &&
       phase.kind !== "downloadWarning"
     ) {
       return;
@@ -102,6 +103,32 @@
     })();
     renderedDocCache.set(bytes, promise);
     return promise;
+  }
+
+  function warningReasonLabel(reason: string): string {
+    switch (reason) {
+      case "wordCount":
+        return "Broad redaction warning — the word-count drop exceeded the configured threshold.";
+      case "repairTouchedMultipleScopes":
+        return "Automatic repair touched multiple scopes, so the output deserves a quick spot check.";
+      case "repairTouchedNonBodyScopes":
+        return "Automatic repair touched headers, footers, notes, or other non-body surfaces.";
+      case "repairTouchedFieldOrRelsSurface":
+        return "Automatic repair touched field or hyperlink relationship surfaces that can affect formatting.";
+      default:
+        return reason;
+    }
+  }
+
+  function surfaceLabel(surface: string): string {
+    switch (surface) {
+      case "field":
+        return "field";
+      case "rels":
+        return "hyperlink target";
+      default:
+        return "text";
+    }
   }
 </script>
 
@@ -208,6 +235,20 @@
       <div class="spinner" aria-hidden="true"></div>
       <p>Applying redactions · flattening track changes · verifying…</p>
     </div>
+  {:else if phase.kind === "repairing"}
+    <div class="main-head">
+      <div>
+        <div class="file-name">{phase.fileName}</div>
+        <div class="file-bar">
+          <span class="pill ok">Parsed</span>
+          <span class="pill warn">Auto-repairing…</span>
+        </div>
+      </div>
+    </div>
+    <div class="parse-progress">
+      <div class="spinner" aria-hidden="true"></div>
+      <p>First verify found surviving text · retrying once from the original file…</p>
+    </div>
   {:else if phase.kind === "downloadReady"}
     <div class="main-head">
       <div>
@@ -254,6 +295,59 @@
         Start over
       </button>
     </div>
+  {:else if phase.kind === "downloadRepaired"}
+    <div class="main-head">
+      <div>
+        <div class="file-name">{phase.fileName}</div>
+        <div class="file-bar">
+          <span class="pill ok">Parsed</span>
+          <span class="pill ok">Auto-repaired</span>
+          <span class="pill ok">Verified</span>
+        </div>
+      </div>
+      <div class="file-meta">SHA-256 · {formatHash(phase.report.sha256)}</div>
+    </div>
+
+    <div class="verify-banner success">
+      <span class="check">✓</span>
+      <div class="banner-body">
+        <strong>Automatic repair succeeded — ready to download</strong>
+        <p>
+          The first verification pass found
+          {phase.report.repair.initialSurvivorCount}
+          surviving item(s). The app retried once from the original file,
+          and the second verification pass found zero surviving sensitive strings.
+        </p>
+      </div>
+      <div class="sha-badge">
+        <div class="sha-label">SHA-256</div>
+        <div class="sha-value">{formatHash(phase.report.sha256)}</div>
+      </div>
+    </div>
+
+    <div class="download-card">
+      <div class="download-meta">
+        <div class="download-name">{redactedFilename(phase.fileName)}</div>
+        <div class="download-sub">
+          {formatBytes(phase.report.outputBytes.length)} ·
+          {phase.report.scopeMutations.length} scopes touched ·
+          repaired {phase.report.repair.repairedSurvivorCount} surviving string(s)
+        </div>
+      </div>
+      <button class="btn-download" type="button" onclick={downloadReport}>
+        Download {redactedFilename(phase.fileName)}
+      </button>
+      <button
+        class="btn-secondary"
+        type="button"
+        onclick={() => appState.backToReview()}
+      >
+        Back to review
+      </button>
+      <button class="btn-secondary" type="button" onclick={() => appState.reset()}>
+        Start over
+      </button>
+    </div>
   {:else if phase.kind === "downloadWarning"}
     <div class="main-head">
       <div>
@@ -270,13 +364,25 @@
     <div class="verify-banner warning">
       <span class="warnmark">!</span>
       <div class="banner-body">
-        <strong>No leaks found — review warning before download</strong>
+        <strong>
+          {phase.report.repair.attempted
+            ? "Automatic repair succeeded — review warnings before download"
+            : "No leaks found — review warnings before download"}
+        </strong>
         <p>
-          Round-trip verification found zero surviving sensitive strings,
-          but {phase.report.wordCount.droppedPct}% of words were removed
-          (threshold {phase.report.wordCount.thresholdPct}%).
-          Review broad selections, or download anyway if this is intentional.
+          Round-trip verification found zero surviving sensitive strings.
+          {#if phase.report.repair.attempted}
+            The app already retried once from the original file before showing
+            this warning state.
+          {/if}
         </p>
+        <ul class="survival-list">
+          {#each phase.report.warningReasons as reason (reason)}
+            <li class="survival-row">
+              <div class="survival-meta">{warningReasonLabel(reason)}</div>
+            </li>
+          {/each}
+        </ul>
       </div>
       <div class="sha-badge">
         <div class="sha-label">SHA-256</div>
@@ -290,7 +396,8 @@
         <div class="download-sub">
           {formatBytes(phase.report.outputBytes.length)} ·
           {phase.report.scopeMutations.length} scopes touched ·
-          0 surviving strings
+          0 surviving strings ·
+          {phase.report.warningReasons.length} warning reason(s)
         </div>
       </div>
       <button
@@ -325,18 +432,19 @@
     <div class="verify-banner failure">
       <span class="failmark">✗</span>
       <div class="banner-body">
-        <strong>Download blocked — sensitive text survived</strong>
+        <strong>Download blocked — sensitive text survived after automatic repair</strong>
         <p>
-          The strings below were already selected for redaction, but they
-          still appear in the generated DOCX. Return to review and inspect
-          them before retrying.
+          The app already retried once from the original file, but the
+          strings below still appear in the generated DOCX. Return to review
+          and inspect them before retrying.
         </p>
         <ul class="survival-list">
-          {#each phase.report.verify.survived as s (s.targetId + s.scope.path)}
+          {#each phase.report.verify.survived as s (s.targetId + s.scope.path + s.surface)}
             <li class="survival-row">
               <div class="survival-meta">
                 <code>{s.text}</code> × {s.count} in
                 <code>{s.scope.path}</code>
+                <span class="survival-surface">({surfaceLabel(s.surface)})</span>
               </div>
               <button
                 class="btn-inline-review"
@@ -658,6 +766,13 @@
   .survival-meta {
     min-width: 0;
     line-height: 1.55;
+  }
+
+  .survival-surface {
+    margin-left: 6px;
+    color: var(--ink-muted);
+    font-size: 11px;
+    font-family: var(--mono);
   }
 
   .survival-list code {

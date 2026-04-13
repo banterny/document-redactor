@@ -44,8 +44,12 @@ import { listScopes } from "../docx/scopes.js";
 import type { Scope } from "../docx/types.js";
 import {
   finalizeRedaction,
-  type FinalizedReport,
 } from "../finalize/finalize.js";
+import {
+  runGuidedRecovery,
+  toGuidedReport,
+  type GuidedFinalizeReport,
+} from "../finalize/guided-recovery.js";
 import { parseDefinitionClauses } from "../propagation/definition-clauses.js";
 import {
   propagateVariants,
@@ -152,6 +156,7 @@ const NON_PII_SECTION: Readonly<Record<NonPiiCategory, SelectionReviewSection>> 
 export interface ApplyOptions {
   readonly placeholder?: string;
   readonly wordCountThresholdPct?: number;
+  readonly onRepairing?: () => void;
 }
 
 /**
@@ -287,15 +292,17 @@ export async function applyRedaction(
   analysis: Analysis,
   selections: ReadonlySet<SelectionTargetId>,
   opts: ApplyOptions = {},
-): Promise<FinalizedReport> {
+): Promise<GuidedFinalizeReport> {
   // Fresh reload every time — see docstring.
   const zip = await JSZip.loadAsync(bytes.slice());
+  const selectedTargets: ReadonlyArray<ResolvedRedactionTarget> =
+    resolveSelectedTargets(analysis.selectionTargets, selections);
   const finalizeOpts: {
     targets: ReadonlyArray<ResolvedRedactionTarget>;
     placeholder?: string;
     wordCountThresholdPct?: number;
   } = {
-    targets: resolveSelectedTargets(analysis.selectionTargets, selections),
+    targets: selectedTargets,
   };
   if (opts.placeholder !== undefined) {
     finalizeOpts.placeholder = opts.placeholder;
@@ -303,7 +310,22 @@ export async function applyRedaction(
   if (opts.wordCountThresholdPct !== undefined) {
     finalizeOpts.wordCountThresholdPct = opts.wordCountThresholdPct;
   }
-  return finalizeRedaction(zip, finalizeOpts);
+  const pass1 = await finalizeRedaction(zip, finalizeOpts);
+  if (pass1.verify.isClean) {
+    return toGuidedReport(pass1);
+  }
+
+  opts.onRepairing?.();
+  const guidedParams = {
+    originalBytes: bytes,
+    selectedTargets,
+    pass1Report: pass1,
+    ...(opts.placeholder !== undefined ? { placeholder: opts.placeholder } : {}),
+    ...(opts.wordCountThresholdPct !== undefined
+      ? { wordCountThresholdPct: opts.wordCountThresholdPct }
+      : {}),
+  };
+  return runGuidedRecovery(guidedParams);
 }
 
 /**

@@ -40,6 +40,18 @@ function bodyWith(text: string): string {
   return `<w:document ${W_NS}><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`;
 }
 
+function bodyWithHyperlink(text: string): string {
+  return `<w:document ${W_NS}><w:body><w:p><w:hyperlink r:id="rId5"><w:r><w:t>${text}</w:t></w:r></w:hyperlink></w:p></w:body></w:document>`;
+}
+
+async function syntheticDocx(parts: Record<string, string>): Promise<Uint8Array> {
+  const zip = new JSZip();
+  for (const [filePath, content] of Object.entries(parts)) {
+    zip.file(filePath, content);
+  }
+  return zip.generateAsync({ type: "uint8array" });
+}
+
 const SEEDS: ReadonlyArray<string> = [
   "ABC Corporation",
   "Sunrise Ventures LLC",
@@ -542,7 +554,60 @@ describe("applyRedaction — the Apply button path", () => {
     // but sanity fails at 0% if any word was dropped
     if (report.wordCount.before !== report.wordCount.after) {
       expect(report.wordCount.sane).toBe(false);
+      expect(report.warningReasons).toContain("wordCount");
     }
+  });
+
+  it("runs one guided retry from the original bytes when rel targets survive pass 1", async () => {
+    const email = "contact@pearlabyss.com";
+    const bytes = await syntheticDocx({
+      "word/document.xml": bodyWithHyperlink(email),
+      "word/_rels/document.xml.rels": `<?xml version="1.0"?><Relationships xmlns="x"><Relationship Id="rId5" Type="hyperlink" Target="mailto:${email}" TargetMode="External"/></Relationships>`,
+    });
+    const analysis = withSelectionTargets({
+      entityGroups: [],
+      literalCandidates: [
+        {
+          text: email,
+          seed: email,
+          count: 1,
+          selectionTargetId: buildSelectionTargetId("auto", email),
+        },
+      ],
+      definedCandidates: [],
+      piiCandidates: [],
+      nonPiiCandidates: [],
+      fileStats: { sizeBytes: bytes.length, scopeCount: 1 },
+    });
+    const selections = new Set([buildSelectionTargetId("auto", email)]);
+    let repairingCalls = 0;
+
+    const report = await applyRedaction(bytes, analysis, selections, {
+      onRepairing: () => {
+        repairingCalls++;
+      },
+    });
+
+    expect(repairingCalls).toBe(1);
+    expect(report.verify.isClean).toBe(true);
+    expect(report.repair).toEqual({
+      attempted: true,
+      repairedSurvivorCount: 1,
+      initialSurvivorCount: 1,
+      finalSurvivorCount: 0,
+      touchedScopePaths: ["word/_rels/document.xml.rels"],
+      touchedNonBodyScope: true,
+      touchedFieldOrRelsSurface: true,
+    });
+    expect(report.warningReasons).toEqual([
+      "repairTouchedNonBodyScopes",
+      "repairTouchedFieldOrRelsSurface",
+    ]);
+
+    const reloaded = await JSZip.loadAsync(report.outputBytes);
+    const rels = await reloaded.file("word/_rels/document.xml.rels")!.async("string");
+    expect(rels).toContain("mailto:[REDACTED]");
+    expect(rels).not.toContain(email);
   });
 });
 

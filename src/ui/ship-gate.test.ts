@@ -37,7 +37,10 @@ import {
   appState,
   classifyFinalizedReportPhase,
 } from "./state.svelte.ts";
-import type { FinalizedReport } from "../finalize/finalize.js";
+import type {
+  FormatWarningReason,
+  GuidedFinalizeReport,
+} from "../finalize/guided-recovery.js";
 import { buildSelectionTargetId } from "../selection-targets.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,9 +69,13 @@ function makeReport(
     verifyIsClean: boolean;
     wordCountSane: boolean;
     repairAttempted?: boolean;
-    warningReasons?: readonly string[];
+    warningReasons?: readonly FormatWarningReason[];
   },
-): FinalizedReport {
+): GuidedFinalizeReport {
+  const warningReasons =
+    opts.warningReasons ??
+    (opts.verifyIsClean && !opts.wordCountSane ? ["wordCount"] : []);
+
   return {
     verify: {
       isClean: opts.verifyIsClean,
@@ -82,6 +89,7 @@ function makeReport(
               text: "ABC Corporation",
               count: 6,
               scope: { kind: "body", path: "word/document.xml" },
+              surface: "text",
             },
           ],
     },
@@ -101,9 +109,12 @@ function makeReport(
       initialSurvivorCount: opts.repairAttempted ? 1 : 0,
       finalSurvivorCount:
         opts.repairAttempted && opts.verifyIsClean ? 0 : opts.verifyIsClean ? 0 : 1,
+      touchedScopePaths: [],
+      touchedNonBodyScope: false,
+      touchedFieldOrRelsSurface: false,
     },
-    warningReasons: opts.warningReasons ?? [],
-  } as FinalizedReport;
+    warningReasons,
+  };
 }
 
 describe("ship gate — single-file build", () => {

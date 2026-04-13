@@ -35,6 +35,8 @@ import type {
 import { collectVerifySurfaces } from "./verify-surfaces.js";
 import type { Scope } from "./types.js";
 
+export type VerifySurfaceKind = "text" | "field" | "rels";
+
 /** One sensitive string that survived in one scope. */
 export interface SurvivedString {
   /** Which reviewed target this survival corresponds to. */
@@ -45,6 +47,8 @@ export interface SurvivedString {
   readonly matchedLiteral?: string;
   /** Which scope the survival was found in. */
   readonly scope: Scope;
+  /** Which parsed surface the survival came from. */
+  readonly surface: VerifySurfaceKind;
   /** How many times the string appeared in this scope. */
   readonly count: number;
 }
@@ -90,6 +94,7 @@ export async function verifyRedaction(
           survivedByKey,
           target,
           surface.scope,
+          "text",
           count,
           literal,
         );
@@ -106,6 +111,7 @@ export async function verifyRedaction(
           survivedByKey,
           target,
           surface.scope,
+          "field",
           count,
           literal,
         );
@@ -123,6 +129,7 @@ export async function verifyRedaction(
           survivedByKey,
           target,
           scope,
+          "rels",
           count,
           literal,
         );
@@ -165,10 +172,11 @@ function mergeSurvival(
   survivedByKey: Map<string, SurvivedString>,
   target: ResolvedRedactionTarget,
   scope: Scope,
+  surface: VerifySurfaceKind,
   count: number,
   matchedLiteral: string,
 ): void {
-  const key = `${target.id}\0${scope.path}`;
+  const key = `${target.id}\0${scope.path}\0${surface}`;
   const existing = survivedByKey.get(key);
   if (existing === undefined) {
     survivedByKey.set(
@@ -178,6 +186,7 @@ function mergeSurvival(
             targetId: target.id,
             text: target.displayText,
             scope,
+            surface,
             count,
           }
         : {
@@ -185,6 +194,7 @@ function mergeSurvival(
             text: target.displayText,
             matchedLiteral,
             scope,
+            surface,
             count,
           },
     );
