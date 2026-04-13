@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import JSZip from "jszip";
 
 import { verifyRedaction } from "./verify.js";
+import type { Scope } from "./types.js";
 
 const W_NS = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
 
@@ -224,20 +225,28 @@ describe("verifyRedaction", () => {
 
   it("flags survivals across split <w:t> elements (the silent-leak case)", async () => {
     // This is the case the redactor's coalescer is supposed to catch.
-    // verifyRedaction does NOT use the coalescer — it scans the raw XML.
-    // It should still detect "Corporation" surviving even when it's wrapped
-    // in <w:t> elements, because indexOf operates on the XML string.
+    // Phase 8 hardens verifyRedaction so the visible-text verifier catches
+    // a full string even when Word split it across multiple <w:t> runs.
     const zip = await syntheticDocx({
       "word/document.xml": `<w:document ${W_NS}><w:body><w:p><w:r><w:t>ABC Corpo</w:t></w:r><w:r><w:t>ration</w:t></w:r></w:p></w:body></w:document>`,
     });
-    const result = await verifyRedaction(zip, ["Corporation"]);
-    // "Corporation" only appears as "Corpo" + "ration" — split. The defensive
-    // verifier won't catch the SPLIT form. This is documented behavior:
-    // verify catches what's literally in the XML, the redactor's coalescer
-    // is the defense against split forms.
-    expect(result.isClean).toBe(true);
-    // But "Corpo" alone IS in the literal XML and would be caught:
-    const result2 = await verifyRedaction(zip, ["Corpo"]);
-    expect(result2.isClean).toBe(false);
+    const targets = [
+      {
+        id: "auto:abc-corporation",
+        displayText: "ABC Corporation",
+        redactionLiterals: ["ABC Corporation"],
+        verificationLiterals: ["ABC Corporation"],
+        scopes: [{ kind: "body", path: "word/document.xml" } as Scope],
+      },
+    ];
+
+    const result = await verifyRedaction(
+      zip,
+      targets as unknown as Parameters<typeof verifyRedaction>[1],
+    );
+    expect(result.isClean).toBe(false);
+    expect(result.survived).toHaveLength(1);
+    expect(result.survived[0]!.text).toBe("ABC Corporation");
+    expect(result.survived[0]!.scope.path).toBe("word/document.xml");
   });
 });
