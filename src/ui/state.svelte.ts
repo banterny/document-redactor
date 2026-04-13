@@ -127,6 +127,15 @@ class AppState {
     createManualAdditions(),
   );
 
+  /**
+   * Candidate text currently in "focused" state — set when the user clicks
+   * the jump-to affordance in the candidates list. The rendered document body
+   * watches this and scrolls the first matching mark into view.
+   */
+  focusedCandidate = $state<string | null>(null);
+
+  private focusClearTimer: ReturnType<typeof setTimeout> | null = null;
+
   // ── Verbs ────────────────────────────────────────────────────────
 
   async loadFile(file: File): Promise<void> {
@@ -192,6 +201,17 @@ class AppState {
     this.selections = new Set(this.selections);
   }
 
+  jumpToCandidate(text: string): void {
+    this.focusedCandidate = text;
+    if (this.focusClearTimer !== null) {
+      clearTimeout(this.focusClearTimer);
+    }
+    this.focusClearTimer = setTimeout(() => {
+      this.focusedCandidate = null;
+      this.focusClearTimer = null;
+    }, 1200);
+  }
+
   async applyNow(): Promise<void> {
     if (this.phase.kind !== "postParse") return;
     const { fileName, bytes } = this.phase;
@@ -217,6 +237,11 @@ class AppState {
     this.phase = { kind: "idle" };
     this.selections = new Set();
     this.manualAdditions = createManualAdditions();
+    this.focusedCandidate = null;
+    if (this.focusClearTimer !== null) {
+      clearTimeout(this.focusClearTimer);
+      this.focusClearTimer = null;
+    }
   }
 
   setSeeds(next: ReadonlyArray<string>): void {
