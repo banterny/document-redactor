@@ -29,7 +29,16 @@ export function buildPreviewSegments(
   scopeIndex: number,
   paragraphIndex: number,
 ): PreviewSegment[] {
-  const marks = findMarksWithFallback(paragraphText, candidates);
+  const selectedCandidates = candidates.filter((candidate) => candidate.selected);
+  const uncheckedCandidates = candidates.filter((candidate) => !candidate.selected);
+  const selectedMarks = findMarksWithFallback(paragraphText, selectedCandidates);
+  const uncheckedMarks = findMarksWithFallback(paragraphText, uncheckedCandidates).filter(
+    (span) => !selectedMarks.some((selected) => overlaps(span, selected)),
+  );
+  const marks = [...selectedMarks, ...uncheckedMarks].sort((a, b) => {
+    if (a.start !== b.start) return a.start - b.start;
+    return b.end - b.start - (a.end - a.start);
+  });
   if (marks.length === 0) {
     return [
       {
@@ -159,4 +168,8 @@ function resolveOverlaps(spans: readonly MarkSpan[]): MarkSpan[] {
   }
 
   return kept;
+}
+
+function overlaps(a: MarkSpan, b: MarkSpan): boolean {
+  return a.start < b.end && b.start < a.end;
 }

@@ -1,10 +1,14 @@
 <script lang="ts">
   import { tick } from "svelte";
 
-  import { normalizeForMatching } from "../detection/normalize.js";
   import type { RenderedDocument } from "../docx/render-body.js";
   import type { Scope } from "../docx/types.js";
   import type { Analysis } from "./engine.js";
+  import {
+    buildPreviewSegments,
+    type PreviewCandidate,
+    type PreviewSegment,
+  } from "./preview-segments.js";
   import { appState } from "./state.svelte.ts";
 
   type Props = {
@@ -12,26 +16,10 @@
     analysis: Analysis;
   };
 
-  interface MarkSpan {
-    readonly start: number;
-    readonly end: number;
-    readonly text: string;
-    readonly candidate: string;
-  }
-
-  type Segment =
-    | { readonly type: "text"; readonly key: string; readonly text: string }
-    | {
-        readonly type: "mark";
-        readonly key: string;
-        readonly text: string;
-        readonly candidate: string;
-      };
-
   type ParagraphView = {
     readonly key: string;
     readonly empty: boolean;
-    readonly segments: readonly Segment[];
+    readonly segments: readonly PreviewSegment[];
   };
 
   type ScopeView = {
@@ -46,31 +34,36 @@
   let containerRef = $state<HTMLDivElement | null>(null);
 
   let allCandidates = $derived.by(() => {
-    const candidates = new Set<string>();
+    const candidateTexts = new Set<string>();
 
     for (const group of analysis.entityGroups) {
       for (const literal of group.literals) {
-        candidates.add(literal.text);
+        candidateTexts.add(literal.text);
       }
     }
 
     for (const pii of analysis.piiCandidates) {
-      candidates.add(pii.text);
+      candidateTexts.add(pii.text);
     }
 
     for (const candidate of analysis.nonPiiCandidates) {
-      candidates.add(candidate.text);
+      candidateTexts.add(candidate.text);
     }
 
     for (const bucket of appState.manualAdditions.values()) {
       for (const text of bucket) {
-        candidates.add(text);
+        candidateTexts.add(text);
       }
     }
 
-    return [...candidates].sort(
-      (a, b) => b.length - a.length || a.localeCompare(b),
-    );
+    return [...candidateTexts]
+      .sort((a, b) => b.length - a.length || a.localeCompare(b))
+      .map(
+        (text): PreviewCandidate => ({
+          text,
+          selected: appState.selections.has(text),
+        }),
+      );
   });
 
   let scopeViews = $derived.by(() =>
@@ -84,7 +77,7 @@
         segments:
           paragraph.text.length === 0
             ? []
-            : buildSegments(
+            : buildPreviewSegments(
                 paragraph.text,
                 allCandidates,
                 scopeIndex,
@@ -147,141 +140,6 @@
     return match?.[1] ?? "";
   }
 
-  function buildSegments(
-    paragraphText: string,
-    candidates: readonly string[],
-    scopeIndex: number,
-    paragraphIndex: number,
-  ): Segment[] {
-    const marks = findMarksWithFallback(paragraphText, candidates);
-    if (marks.length === 0) {
-      return [
-        {
-          type: "text",
-          key: `${scopeIndex}-${paragraphIndex}-text-0`,
-          text: paragraphText,
-        },
-      ];
-    }
-
-    const segments: Segment[] = [];
-    let cursor = 0;
-    let segmentIndex = 0;
-
-    for (const mark of marks) {
-      if (mark.start > cursor) {
-        segments.push({
-          type: "text",
-          key: `${scopeIndex}-${paragraphIndex}-text-${segmentIndex}`,
-          text: paragraphText.slice(cursor, mark.start),
-        });
-        segmentIndex += 1;
-      }
-
-      segments.push({
-        type: "mark",
-        key: `${scopeIndex}-${paragraphIndex}-mark-${segmentIndex}`,
-        text: mark.text,
-        candidate: mark.candidate,
-      });
-      segmentIndex += 1;
-      cursor = mark.end;
-    }
-
-    if (cursor < paragraphText.length) {
-      segments.push({
-        type: "text",
-        key: `${scopeIndex}-${paragraphIndex}-text-${segmentIndex}`,
-        text: paragraphText.slice(cursor),
-      });
-    }
-
-    return segments;
-  }
-
-  function findMarksWithFallback(
-    paragraphText: string,
-    candidates: readonly string[],
-  ): MarkSpan[] {
-    const primary = resolveOverlaps(findRawMarks(paragraphText, candidates));
-    const matchedCandidates = new Set(primary.map((span) => span.candidate));
-    const remaining = candidates.filter((candidate) => !matchedCandidates.has(candidate));
-    if (remaining.length === 0) return primary;
-
-    const normalizedParagraph = normalizeForMatching(paragraphText);
-    const fallback: MarkSpan[] = [];
-
-    for (const candidate of remaining) {
-      const normalizedCandidate = normalizeForMatching(candidate).text;
-      if (normalizedCandidate.length === 0) continue;
-
-      let from = 0;
-      while (from <= normalizedParagraph.text.length - normalizedCandidate.length) {
-        const idx = normalizedParagraph.text.indexOf(normalizedCandidate, from);
-        if (idx < 0) break;
-
-        const start = normalizedParagraph.origOffsets[idx];
-        const end = normalizedParagraph.origOffsets[idx + normalizedCandidate.length];
-        if (start === undefined || end === undefined) break;
-
-        fallback.push({
-          start,
-          end,
-          text: paragraphText.slice(start, end),
-          candidate,
-        });
-        from = idx + 1;
-      }
-    }
-
-    return resolveOverlaps([...primary, ...fallback]);
-  }
-
-  function findRawMarks(
-    paragraphText: string,
-    candidates: readonly string[],
-  ): MarkSpan[] {
-    const spans: MarkSpan[] = [];
-
-    for (const candidate of candidates) {
-      if (candidate.length === 0) continue;
-
-      let from = 0;
-      while (from <= paragraphText.length - candidate.length) {
-        const start = paragraphText.indexOf(candidate, from);
-        if (start < 0) break;
-
-        spans.push({
-          start,
-          end: start + candidate.length,
-          text: candidate,
-          candidate,
-        });
-        from = start + 1;
-      }
-    }
-
-    return spans;
-  }
-
-  function resolveOverlaps(spans: readonly MarkSpan[]): MarkSpan[] {
-    const sorted = [...spans].sort((a, b) => {
-      if (a.start !== b.start) return a.start - b.start;
-      return b.end - b.start - (a.end - a.start);
-    });
-
-    const kept: MarkSpan[] = [];
-    let cursor = 0;
-
-    for (const span of sorted) {
-      if (span.start < cursor) continue;
-      kept.push(span);
-      cursor = span.end;
-    }
-
-    return kept;
-  }
-
   function cssEscape(text: string): string {
     return text.replace(/["\\]/g, "\\$&");
   }
@@ -306,13 +164,13 @@
                   <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
                   <mark
                     class="cand-mark"
-                    class:checked={appState.isSelected(segment.candidate)}
-                    class:unchecked={!appState.isSelected(segment.candidate)}
+                    class:checked={segment.selected}
+                    class:unchecked={!segment.selected}
                     data-text={segment.candidate}
                     data-candidate={segment.candidate}
                     tabindex="0"
                     role="button"
-                    aria-pressed={appState.isSelected(segment.candidate)}
+                    aria-pressed={segment.selected}
                     aria-label={`Toggle redaction for ${segment.candidate}`}
                     onclick={() => appState.toggleSelection(segment.candidate)}
                     onkeydown={(event) => {
