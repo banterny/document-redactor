@@ -1,0 +1,195 @@
+import { describe, expect, it } from "vitest";
+
+import type { FinalizedReport } from "./finalize.js";
+import type { ResolvedRedactionTarget } from "../selection-targets.js";
+import {
+  buildRepairPlan,
+  classifyGuidedReport,
+  runGuidedRecovery,
+  type GuidedFinalizeReport,
+} from "./guided-recovery.js";
+
+function makeResolvedTarget(
+  text: string,
+  overrides: Partial<ResolvedRedactionTarget> = {},
+): ResolvedRedactionTarget {
+  return {
+    id: `auto:${text}`,
+    displayText: text,
+    redactionLiterals: [text],
+    verificationLiterals: [text],
+    scopes: [{ kind: "body", path: "word/document.xml" }],
+    ...overrides,
+  };
+}
+
+function makeReport(
+  opts: {
+    verifyIsClean: boolean;
+    wordCountSane?: boolean;
+    survived?: FinalizedReport["verify"]["survived"];
+  },
+): FinalizedReport {
+  return {
+    verify: {
+      isClean: opts.verifyIsClean,
+      scopesChecked: 1,
+      stringsTested: 1,
+      survived: opts.survived ?? [],
+    },
+    scopeMutations: [],
+    wordCount: {
+      before: 100,
+      after: opts.wordCountSane === false ? 40 : 82,
+      droppedPct: opts.wordCountSane === false ? 60 : 18,
+      thresholdPct: 30,
+      sane: opts.wordCountSane ?? true,
+    },
+    sha256: "a".repeat(64),
+    outputBytes: new Uint8Array([1, 2, 3]),
+  };
+}
+
+describe("guided-recovery", () => {
+  it("does not attempt a repair pass when pass-1 verify is already clean", async () => {
+    let calls = 0;
+    const originalBytes = new Uint8Array([9, 9, 9]);
+    const selectedTargets = [makeResolvedTarget("ABC Corporation")];
+
+    const result = await runGuidedRecovery(
+      {
+        originalBytes,
+        selectedTargets,
+        pass1Report: makeReport({ verifyIsClean: true }),
+      },
+      {
+        runRepairPass: async () => {
+          calls++;
+          return makeReport({ verifyIsClean: true });
+        },
+      },
+    );
+
+    expect(calls).toBe(0);
+    expect(result.repair).toEqual({
+      attempted: false,
+      repairedSurvivorCount: 0,
+      initialSurvivorCount: 0,
+      finalSurvivorCount: 0,
+    });
+    expect(classifyGuidedReport(result)).toBe("downloadReady");
+  });
+
+  it("retries exactly once from the original bytes and can classify a repaired success", async () => {
+    const originalBytes = new Uint8Array([1, 2, 3, 4]);
+    const selectedTargets = [makeResolvedTarget("ABC Corporation")];
+    const pass1 = makeReport({
+      verifyIsClean: false,
+      survived: [
+        {
+          targetId: "auto:ABC Corporation",
+          text: "ABC Corporation",
+          matchedLiteral: "ABC Corp",
+          scope: { kind: "header", path: "word/header1.xml" },
+          count: 1,
+          surface: "text",
+        },
+      ],
+    });
+
+    let calls = 0;
+    const result = await runGuidedRecovery(
+      {
+        originalBytes,
+        selectedTargets,
+        pass1Report: pass1,
+      },
+      {
+        runRepairPass: async (bytes, repairPlan) => {
+          calls++;
+          expect(bytes).toEqual(originalBytes);
+          expect(repairPlan.targets).toEqual([
+            {
+              ...selectedTargets[0],
+              redactionLiterals: ["ABC Corporation", "ABC Corp"],
+              verificationLiterals: ["ABC Corporation", "ABC Corp"],
+            },
+          ]);
+          return makeReport({ verifyIsClean: true });
+        },
+      },
+    );
+
+    expect(calls).toBe(1);
+    expect(result.repair).toEqual({
+      attempted: true,
+      repairedSurvivorCount: 1,
+      initialSurvivorCount: 1,
+      finalSurvivorCount: 0,
+    });
+    expect(classifyGuidedReport(result)).toBe("downloadRepaired");
+  });
+
+  it("derives a deterministic exact-literal repair plan from pass-1 survivors", () => {
+    const plan = buildRepairPlan(
+      [makeResolvedTarget("ABC Corporation")],
+      [
+        {
+          targetId: "auto:ABC Corporation",
+          text: "ABC Corporation",
+          matchedLiteral: "ABC Corp",
+          scope: { kind: "rels", path: "word/_rels/document.xml.rels" } as never,
+          count: 1,
+          surface: "rels",
+        },
+      ],
+    );
+
+    expect(plan.targets).toEqual([
+      {
+        ...makeResolvedTarget("ABC Corporation"),
+        redactionLiterals: ["ABC Corporation", "ABC Corp"],
+        verificationLiterals: ["ABC Corporation", "ABC Corp"],
+      },
+    ]);
+    expect(plan.touchedScopePaths).toEqual(["word/_rels/document.xml.rels"]);
+  });
+});
+
+declare module "./guided-recovery.js" {
+  export type GuidedFinalizeReport = FinalizedReport & {
+    readonly repair: {
+      readonly attempted: boolean;
+      readonly repairedSurvivorCount: number;
+      readonly initialSurvivorCount: number;
+      readonly finalSurvivorCount: number;
+    };
+    readonly warningReasons: readonly string[];
+  };
+
+  export function buildRepairPlan(
+    selectedTargets: readonly ResolvedRedactionTarget[],
+    survived: NonNullable<FinalizedReport["verify"]["survived"]>,
+  ): {
+    readonly targets: readonly ResolvedRedactionTarget[];
+    readonly touchedScopePaths: readonly string[];
+  };
+
+  export function classifyGuidedReport(
+    report: GuidedFinalizeReport,
+  ): "downloadReady" | "downloadRepaired" | "downloadWarning" | "verifyFail";
+
+  export function runGuidedRecovery(
+    params: {
+      readonly originalBytes: Uint8Array;
+      readonly selectedTargets: readonly ResolvedRedactionTarget[];
+      readonly pass1Report: FinalizedReport;
+    },
+    deps?: {
+      readonly runRepairPass?: (
+        bytes: Uint8Array,
+        repairPlan: ReturnType<typeof buildRepairPlan>,
+      ) => Promise<FinalizedReport>;
+    },
+  ): Promise<GuidedFinalizeReport>;
+}
