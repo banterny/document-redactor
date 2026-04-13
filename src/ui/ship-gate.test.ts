@@ -312,20 +312,20 @@ describe("ship gate — verification recovery flow", () => {
     ).toBe("downloadWarning");
   });
 
-  it("classifies dirty + sane reports as verifyFail", () => {
+  it("classifies dirty + sane reports as downloadRisk", () => {
     expect(
       classifyFinalizedReportPhase(
         makeReport({ verifyIsClean: false, wordCountSane: true }),
       ),
-    ).toBe("verifyFail");
+    ).toBe("downloadRisk");
   });
 
-  it("classifies dirty + insane reports as verifyFail", () => {
+  it("classifies dirty + insane reports as downloadRisk", () => {
     expect(
       classifyFinalizedReportPhase(
         makeReport({ verifyIsClean: false, wordCountSane: false }),
       ),
-    ).toBe("verifyFail");
+    ).toBe("downloadRisk");
   });
 
   it("classifies clean repaired reports with no warnings as downloadRepaired", () => {
@@ -353,7 +353,7 @@ describe("ship gate — verification recovery flow", () => {
     ).toBe("downloadWarning");
   });
 
-  it("classifies repaired-but-still-dirty reports as verifyFail", () => {
+  it("classifies repaired-but-still-dirty reports as downloadRisk", () => {
     expect(
       classifyFinalizedReportPhase(
         makeReport({
@@ -363,22 +363,69 @@ describe("ship gate — verification recovery flow", () => {
           warningReasons: ["repairTouchedNonBodyScopes"],
         }),
       ),
-    ).toBe("verifyFail");
+    ).toBe("downloadRisk");
   });
 
-  it("reviewCandidate from verifyFail returns to postParse and sets focusedCandidate", () => {
+  it("reviewCandidate from downloadRisk returns to postParse and sets focusedCandidate", () => {
     if (appState.phase.kind !== "postParse") {
       throw new Error("expected postParse baseline");
     }
     const { fileName, bytes, analysis } = appState.phase;
     const report = makeReport({ verifyIsClean: false, wordCountSane: true });
-    appState.phase = { kind: "verifyFail", fileName, bytes, analysis, report };
+    appState.phase = {
+      kind: "downloadRisk",
+      fileName,
+      bytes,
+      analysis,
+      report,
+    } as never;
 
     const targetId = buildSelectionTargetId("auto", "ABC Corporation");
     appState.reviewCandidate(targetId);
 
     expect(appState.phase.kind).toBe("postParse");
     expect(appState.focusedCandidate).toBe(targetId);
+  });
+
+  it("backToReview works from downloadRisk", () => {
+    if (appState.phase.kind !== "postParse") {
+      throw new Error("expected postParse baseline");
+    }
+    const { fileName, bytes, analysis } = appState.phase;
+    const report = makeReport({ verifyIsClean: false, wordCountSane: true });
+    appState.phase = {
+      kind: "downloadRisk",
+      fileName,
+      bytes,
+      analysis,
+      report,
+    } as never;
+
+    appState.backToReview();
+
+    expect(appState.phase.kind).toBe("postParse");
+  });
+
+  it("requires explicit acknowledgement before dirty output can download", () => {
+    if (appState.phase.kind !== "postParse") {
+      throw new Error("expected postParse baseline");
+    }
+    const { fileName, bytes, analysis } = appState.phase;
+    const report = makeReport({ verifyIsClean: false, wordCountSane: true });
+    appState.phase = {
+      kind: "downloadRisk",
+      fileName,
+      bytes,
+      analysis,
+      report,
+    } as never;
+
+    expect(appState.canDownloadCurrentReport()).toBe(false);
+    appState.setResidualRiskAcknowledged(true);
+    expect(appState.canDownloadCurrentReport()).toBe(true);
+
+    appState.backToReview();
+    expect(appState.residualRiskAcknowledged).toBe(false);
   });
 
   it("reviewCandidate from downloadWarning returns to postParse and sets focusedCandidate", () => {
