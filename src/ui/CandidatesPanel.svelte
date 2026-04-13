@@ -6,7 +6,8 @@
 -->
 <script lang="ts">
   import CategorySection from "./CategorySection.svelte";
-  import type { Analysis, PiiCandidate } from "./engine.ts";
+  import type { Analysis } from "./engine.ts";
+  import { piiKindLabel } from "./pii-kinds.js";
   import { appState, type AppPhase } from "./state.svelte.ts";
   import type { ManualCategory } from "./state.svelte.ts";
 
@@ -142,27 +143,6 @@
       sections.other.length,
   );
   let canApply = $derived(phase.kind === "postParse" && selectedCount > 0);
-
-  function piiKindLabel(kind: PiiCandidate["kind"]): string {
-    switch (kind) {
-      case "rrn":
-        return "주민등록번호";
-      case "brn":
-        return "사업자등록번호";
-      case "ein":
-        return "US EIN";
-      case "phone-kr":
-        return "phone · KR";
-      case "phone-intl":
-        return "phone · intl";
-      case "email":
-        return "email";
-      case "account-kr":
-        return "bank account · KR";
-      case "card":
-        return "credit card";
-    }
-  }
 
   function formatScopes(scopes: ReadonlyArray<{ kind: string; path: string }>): string {
     return [...new Set(scopes.map((scope) => scope.kind))].join(" · ");

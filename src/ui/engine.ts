@@ -36,7 +36,6 @@ import {
   type ScopedCandidate,
   type ScopedStructuralDefinition,
 } from "../detection/detect-all.js";
-import type { DetectedMatch } from "../detection/detect-pii.js";
 import { extractTextFromZip } from "../detection/extract-text.js";
 import { ROLE_BLACKLIST_EN } from "../detection/rules/role-blacklist-en.js";
 import { ROLE_BLACKLIST_KO } from "../detection/rules/role-blacklist-ko.js";
@@ -51,13 +50,18 @@ import {
   propagateVariants,
   type VariantGroup,
 } from "../propagation/propagate.js";
+import {
+  IDENTIFIER_SUBCATEGORY_TO_KIND,
+  type IdentifierSubcategory,
+  type UiPiiKind,
+} from "./pii-kinds.js";
 
 /** Aggregated PII candidate — one per unique text, with scope + count info. */
 export interface PiiCandidate {
   /** The literal substring to redact. */
   readonly text: string;
   /** Which regex category detected it (email, phone-kr, rrn, ...). */
-  readonly kind: DetectedMatch["kind"];
+  readonly kind: UiPiiKind;
   /** Total occurrences across every scope. */
   readonly count: number;
   /** Distinct scopes this candidate appeared in. */
@@ -95,17 +99,6 @@ export interface Analysis {
   readonly nonPiiCandidates: ReadonlyArray<NonPiiCandidate>;
   readonly fileStats: FileStats;
 }
-
-const IDENTIFIER_SUBCATEGORY_TO_KIND: Readonly<Record<string, DetectedMatch["kind"]>> = {
-  "korean-rrn": "rrn",
-  "korean-brn": "brn",
-  "us-ein": "ein",
-  "phone-kr": "phone-kr",
-  "phone-intl": "phone-intl",
-  email: "email",
-  "account-kr": "account-kr",
-  "credit-card": "card",
-};
 
 type NonPiiCategory = NonPiiCandidate["category"];
 const ENGLISH_ARTICLES = new Set(["the", "a", "an"]);
@@ -239,7 +232,7 @@ async function aggregateAll(zip: JSZip): Promise<{
 
   const piiByText = new Map<
     string,
-    { kind: DetectedMatch["kind"]; count: number; scopes: Scope[] }
+    { kind: UiPiiKind; count: number; scopes: Scope[] }
   >();
   const nonPiiByText = new Map<
     string,
@@ -286,10 +279,12 @@ async function aggregateAll(zip: JSZip): Promise<{
 }
 
 function foldPiiCandidate(
-  byText: Map<string, { kind: DetectedMatch["kind"]; count: number; scopes: Scope[] }>,
+  byText: Map<string, { kind: UiPiiKind; count: number; scopes: Scope[] }>,
   entry: ScopedCandidate,
 ): void {
-  const subcategory = entry.candidate.ruleId.slice("identifiers.".length);
+  const subcategory = entry.candidate.ruleId.slice(
+    "identifiers.".length,
+  ) as IdentifierSubcategory;
   const kind = IDENTIFIER_SUBCATEGORY_TO_KIND[subcategory];
   if (kind === undefined) {
     throw new Error(`Unknown identifier subcategory: ${subcategory}`);
