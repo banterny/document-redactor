@@ -27,6 +27,11 @@
     appState.removeManualCandidate(manualCategory, text);
   }
 
+  function handleJump(event: MouseEvent): void {
+    event.stopPropagation();
+    appState.jumpToCandidate(text);
+  }
+
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key !== "Delete") return;
     if (!isManual || manualCategory === undefined) return;
@@ -57,6 +62,16 @@
         <span class="row-badge">manual</span>
       {/if}
     </span>
+  </button>
+
+  <button
+    type="button"
+    class="row-jump"
+    aria-label="Jump to document position"
+    title="Jump to position"
+    onclick={handleJump}
+  >
+    ↓
   </button>
 
   {#if isManual}
@@ -101,6 +116,7 @@
   }
 
   .row:focus-visible,
+  .row-jump:focus-visible,
   .row-remove:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
@@ -203,6 +219,28 @@
     color: var(--primary-hover);
   }
 
+  .row-jump {
+    width: 36px;
+    min-width: 36px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--ink-soft);
+    font-size: 12px;
+    transition:
+      background 0.12s ease,
+      color 0.12s ease,
+      border-color 0.12s ease,
+      transform 0.1s ease;
+  }
+
+  .row-jump:hover {
+    background: var(--primary-bg);
+    color: var(--primary);
+    border-color: var(--primary-border);
+  }
+
+  .row-jump:active,
   .row-remove:active {
     transform: scale(0.98);
   }
