@@ -299,4 +299,28 @@ describe("redactDocx — Phase 4 field/hyperlink integration", () => {
     expect(xml).not.toContain("<w:hyperlink");
     expect(rels).toContain("mailto:contact@pearlabyss.com");
   });
+
+  it("flags the orphaned hyperlink rel as a verify failure end-to-end", async () => {
+    const zip = await syntheticDocx({
+      "word/document.xml": bodyXml(
+        paragraphXml(
+          `<w:hyperlink r:id="rId5">${runXml("contact@pearlabyss.com")}</w:hyperlink>`,
+        ),
+      ),
+      "word/_rels/document.xml.rels": `<?xml version="1.0"?><Relationships xmlns="x"><Relationship Id="rId5" Type="hyperlink" Target="mailto:contact@pearlabyss.com" TargetMode="External"/></Relationships>`,
+    });
+
+    const report = await redactDocx(zip, {
+      targets: ["contact@pearlabyss.com"],
+    });
+
+    expect(report.verify.isClean).toBe(false);
+    expect(report.verify.survived).toHaveLength(1);
+    expect((report.verify.survived[0]!.scope as { kind: string }).kind).toBe(
+      "rels",
+    );
+    expect(report.verify.survived[0]!.scope.path).toBe(
+      "word/_rels/document.xml.rels",
+    );
+  });
 });
