@@ -14,6 +14,7 @@ import { describe, it, expect } from "vitest";
 import {
   findRedactionMatches,
   redactParagraph,
+  redactInstrText,
   redactScopeXml,
   DEFAULT_PLACEHOLDER,
 } from "./redact.js";
@@ -26,6 +27,10 @@ function p(...runs: string[]): string {
     .map((t) => `<w:r><w:t xml:space="preserve">${t}</w:t></w:r>`)
     .join("");
   return `<w:p ${W_NS}>${inner}</w:p>`;
+}
+
+function runXml(text: string): string {
+  return `<w:r><w:t>${text}</w:t></w:r>`;
 }
 
 /** Build a paragraph with explicit rPr per run (to test formatting preservation). */
@@ -333,6 +338,83 @@ describe("redactScopeXml", () => {
     // Both <w:sectPr/> markers survive
     expect((out.match(/<w:sectPr\/>/g) ?? [])).toHaveLength(2);
     expect(out).toContain("[REDACTED]");
+  });
+
+  it("runs the instrText safety net after paragraph redaction", () => {
+    const xml = `<w:body>${p("contact@pearlabyss.com")}<w:instrText xml:space="preserve"> HYPERLINK "mailto:contact@pearlabyss.com" </w:instrText></w:body>`;
+    const out = redactScopeXml(xml, ["contact@pearlabyss.com"]);
+    expect(out).toContain("[REDACTED]");
+    expect(out).not.toContain("contact@pearlabyss.com");
+  });
+
+  it("is idempotent with the instrText safety net enabled", () => {
+    const xml = `<w:body>${p("secret")}<w:instrText> secret </w:instrText></w:body>`;
+    const once = redactScopeXml(xml, ["secret"]);
+    const twice = redactScopeXml(once, ["secret"]);
+    expect(twice).toBe(once);
+  });
+});
+
+describe("redactInstrText", () => {
+  it("returns the XML unchanged when targets are empty", () => {
+    const xml = `<w:instrText>secret</w:instrText>`;
+    expect(redactInstrText(xml, [])).toBe(xml);
+  });
+
+  it("scrubs a single sensitive string from instrText content", () => {
+    const xml = `<w:instrText xml:space="preserve"> HYPERLINK "mailto:contact@pearlabyss.com" </w:instrText>`;
+    const out = redactInstrText(xml, ["contact@pearlabyss.com"]);
+    expect(out).toContain("[REDACTED]");
+    expect(out).not.toContain("contact@pearlabyss.com");
+  });
+
+  it("scrubs multiple sensitive strings from the same instrText node", () => {
+    const xml = `<w:instrText> mailto:a@b.com cc c@d.com </w:instrText>`;
+    const out = redactInstrText(xml, ["a@b.com", "c@d.com"]);
+    expect(out).not.toContain("a@b.com");
+    expect(out).not.toContain("c@d.com");
+    expect((out.match(/\[REDACTED\]/g) ?? [])).toHaveLength(2);
+  });
+
+  it("uses longest-first replacement when targets overlap", () => {
+    const xml = `<w:instrText> HYPERLINK "mailto:ABC Corporation" </w:instrText>`;
+    const out = redactInstrText(xml, ["ABC", "ABC Corporation"]);
+    expect(out).toContain(`mailto:${DEFAULT_PLACEHOLDER}`);
+    expect(out).not.toContain("ABC Corporation");
+  });
+
+  it("preserves the XML unchanged when no target matches instrText", () => {
+    const xml = `<w:instrText> AUTHOR </w:instrText>`;
+    expect(redactInstrText(xml, ["contact@pearlabyss.com"])).toBe(xml);
+  });
+
+  it("scrubs a fldSimple w:instr attribute with a plain sensitive string", () => {
+    const xml = `<w:fldSimple w:instr=" HYPERLINK mailto:contact@pearlabyss.com ">${runXml("contact@pearlabyss.com")}</w:fldSimple>`;
+    const out = redactInstrText(xml, ["contact@pearlabyss.com"]);
+    expect(out).toContain(`w:instr=" HYPERLINK mailto:${DEFAULT_PLACEHOLDER} "`);
+    expect(out).toContain("contact@pearlabyss.com");
+  });
+
+  it("scrubs an entity-encoded fldSimple w:instr attribute", () => {
+    const xml = `<w:fldSimple w:instr=" HYPERLINK &quot;mailto:contact@pearlabyss.com&quot; ">${runXml("contact@pearlabyss.com")}</w:fldSimple>`;
+    const out = redactInstrText(xml, [`"mailto:contact@pearlabyss.com"`]);
+    expect(out).toContain(`w:instr=" HYPERLINK ${DEFAULT_PLACEHOLDER} "`);
+    expect(out).toContain("contact@pearlabyss.com");
+  });
+
+  it("scrubs multiple fldSimple instruction attributes in one scope", () => {
+    const xml = `<w:body><w:fldSimple w:instr=" mailto:a@b.com ">${runXml("A")}</w:fldSimple><w:fldSimple w:instr=" mailto:c@d.com ">${runXml("B")}</w:fldSimple></w:body>`;
+    const out = redactInstrText(xml, ["a@b.com", "c@d.com"]);
+    expect(out).not.toContain("a@b.com");
+    expect(out).not.toContain("c@d.com");
+    expect((out.match(/\[REDACTED\]/g) ?? [])).toHaveLength(2);
+  });
+
+  it("is idempotent when applied twice", () => {
+    const xml = `<w:instrText> secret </w:instrText>`;
+    const once = redactInstrText(xml, ["secret"]);
+    const twice = redactInstrText(once, ["secret"]);
+    expect(twice).toBe(once);
   });
 });
 

@@ -118,6 +118,53 @@ export function redactParagraph(
 }
 
 /**
+ * Safety-net: scrub sensitive strings from any `<w:instrText>` content or
+ * `<w:fldSimple w:instr="...">` attribute that survives the flatten pass.
+ */
+export function redactInstrText(
+  xml: string,
+  targets: ReadonlyArray<string>,
+  placeholder: string = DEFAULT_PLACEHOLDER,
+): string {
+  if (targets.length === 0) return xml;
+
+  const sorted = [...targets]
+    .filter((target) => target.length > 0)
+    .sort((a, b) => b.length - a.length);
+  if (sorted.length === 0) return xml;
+
+  let out = xml.replace(
+    /<w:instrText(?:\s[^>]*)?>([\s\S]*?)<\/w:instrText>/g,
+    (full, inner: string) => {
+      let redacted = inner;
+      for (const target of sorted) {
+        redacted = redacted.split(target).join(placeholder);
+      }
+      if (redacted === inner) return full;
+      return full.replace(inner, redacted);
+    },
+  );
+
+  out = out.replace(
+    /(<w:fldSimple\s[^>]*?w:instr=")([^"]*)("[^>]*>)/g,
+    (full, open: string, instr: string, close: string) => {
+      let redacted = instr;
+      for (const target of sorted) {
+        redacted = redacted.split(target).join(placeholder);
+        const encoded = target.replace(/"/g, "&quot;");
+        if (encoded !== target) {
+          redacted = redacted.split(encoded).join(placeholder);
+        }
+      }
+      if (redacted === instr) return full;
+      return `${open}${redacted}${close}`;
+    },
+  );
+
+  return out;
+}
+
+/**
  * Apply `redactParagraph` to every `<w:p>` element inside an entire scope
  * XML (e.g. word/document.xml, word/header1.xml, word/footnotes.xml).
  * Self-closing `<w:p/>` and `<w:pPr>` are left alone.
@@ -130,7 +177,7 @@ export function redactScopeXml(
   // Match `<w:p>...</w:p>` and self-closing `<w:p/>`. The negative-lookahead
   // `(?!P)` ensures we don't accidentally match `<w:pPr>` (paragraph
   // properties) — we want a paragraph element, not a properties container.
-  return scopeXml.replace(
+  const afterRunRedact = scopeXml.replace(
     /<w:p(?!P|r)(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/w:p>)/g,
     (paragraph) => {
       // Self-closing paragraphs have no body to redact.
@@ -138,6 +185,8 @@ export function redactScopeXml(
       return redactParagraph(paragraph, targets, placeholder);
     },
   );
+
+  return redactInstrText(afterRunRedact, targets, placeholder);
 }
 
 // ────────────────────────────────────────────────────────────────────────
