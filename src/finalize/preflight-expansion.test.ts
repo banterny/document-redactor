@@ -3,6 +3,7 @@ import JSZip from "jszip";
 
 import { buildResolvedTargetsFromStrings } from "../selection-targets.js";
 import { buildPreflightExpansionPlan } from "./preflight-expansion.js";
+import type { ResolvedRedactionTarget } from "../selection-targets.js";
 
 const W_NS = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
 
@@ -16,6 +17,20 @@ async function syntheticDocx(parts: Record<string, string>): Promise<Uint8Array>
 
 function bodyWith(text: string): string {
   return `<w:document ${W_NS}><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`;
+}
+
+function makeTarget(
+  text: string,
+  overrides: Partial<ResolvedRedactionTarget> = {},
+): ResolvedRedactionTarget {
+  return {
+    id: `auto:${text}`,
+    displayText: text,
+    redactionLiterals: [text],
+    verificationLiterals: [text],
+    scopes: [{ kind: "body", path: "word/document.xml" }],
+    ...overrides,
+  };
 }
 
 describe("preflight-expansion", () => {
@@ -83,6 +98,49 @@ describe("preflight-expansion", () => {
       touchedNonBodyScope: false,
       touchedFieldSurface: true,
       touchedRelsSurface: false,
+      expandedLiteralCount: 0,
+    });
+  });
+
+  it("deduplicates and sorts merged literals deterministically per target", async () => {
+    const text = "ABC Corporation";
+    const bytes = await syntheticDocx({
+      "word/document.xml": bodyWith(text),
+    });
+
+    const plan = await buildPreflightExpansionPlan(bytes, [
+      makeTarget(text, {
+        redactionLiterals: ["ABC", text, "ABC", text],
+        verificationLiterals: ["ABC", text],
+      }),
+    ]);
+
+    expect(plan.targets).toEqual([
+      {
+        ...makeTarget(text),
+        redactionLiterals: [text, "ABC"],
+        verificationLiterals: [text, "ABC"],
+      },
+    ]);
+  });
+
+  it("tracks mixed non-body and rels touches in the preflight summary", async () => {
+    const email = "contact@pearlabyss.com";
+    const bytes = await syntheticDocx({
+      "word/header1.xml": `<w:hdr ${W_NS}><w:p><w:fldSimple w:instr=" HYPERLINK &quot;mailto:${email}&quot; "><w:r><w:t>${email}</w:t></w:r></w:fldSimple></w:p></w:hdr>`,
+      "word/_rels/header1.xml.rels": `<?xml version="1.0"?><Relationships xmlns="x"><Relationship Id="rId1" Type="hyperlink" Target="mailto:${email}" TargetMode="External"/></Relationships>`,
+    });
+
+    const plan = await buildPreflightExpansionPlan(
+      bytes,
+      buildResolvedTargetsFromStrings([email]),
+    );
+
+    expect(plan.summary).toEqual({
+      touchedScopePaths: ["word/_rels/header1.xml.rels", "word/header1.xml"],
+      touchedNonBodyScope: true,
+      touchedFieldSurface: true,
+      touchedRelsSurface: true,
       expandedLiteralCount: 0,
     });
   });

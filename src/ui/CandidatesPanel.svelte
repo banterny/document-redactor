@@ -350,13 +350,15 @@
         or download from the main panel.
       </p>
     </div>
-  {:else if phase.kind === "verifyFail"}
+  {:else if phase.kind === "downloadRisk"}
     <div class="panel-head">
       <h2 class="panel-title" style="color: var(--err)">
-        Sensitive text survived
+        Residual risk detected
       </h2>
       <p class="panel-sub">
-        Auto-repair was attempted. Download is blocked until the survivors are reviewed.
+        {phase.report.residualRisk.survivorCount} surviving item(s) remain after
+        preflight and automatic repair. Download is available only after explicit
+        acknowledgement in the main panel.
       </p>
     </div>
   {:else if phase.kind === "fatalError"}

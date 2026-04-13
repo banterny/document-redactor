@@ -13,7 +13,7 @@ A step-by-step walkthrough for running `document-redactor` on a real file. If yo
 5. [The candidate panel — 8 category sections + catch-all](#5-the-candidate-panel--8-category-sections--catch-all)
 6. [The inline document preview](#6-the-inline-document-preview)
 7. [Defined term labels (the D9 policy)](#7-defined-term-labels-the-d9-policy)
-8. [The three verification outcomes](#8-the-three-verification-outcomes)
+8. [The four post-Apply outcomes](#8-the-four-post-apply-outcomes)
 9. [Non-contract documents](#9-non-contract-documents)
 10. [Keyboard shortcuts](#10-keyboard-shortcuts)
 11. [Verifying your output file](#11-verifying-your-output-file)
@@ -27,7 +27,7 @@ A step-by-step walkthrough for running `document-redactor` on a real file. If yo
 
 Go to the [latest release](https://github.com/kipeum86/document-redactor/releases/latest) and download **both** files:
 
-- **`document-redactor.html`** — the tool itself (~238 KB, single HTML file)
+- **`document-redactor.html`** — the tool itself (~247 KB, single HTML file)
 - **`document-redactor.html.sha256`** — the integrity sidecar (89 bytes)
 
 If you received the files via Kakao, email, or USB from someone else, that's fine — the verification step in the next section is exactly designed for this case. You don't need to trust the sender; you need to verify the hash.
@@ -144,13 +144,13 @@ The tool runs the full pipeline:
 6. **Round-trip verify** — re-parses the output and confirms zero surviving sensitive strings (including URLs in `word/_rels/*.rels`)
 7. **Word-count sanity** — compares before/after word counts; ≥30% drop triggers a warning
 
-One of three verification outcomes appears. See [§ 8](#8-the-three-verification-outcomes).
+One of four post-Apply outcomes appears. See [§ 8](#8-the-four-post-apply-outcomes).
 
 ### Step 4.5 — Download
 
-On **downloadReady** (green) or **downloadWarning** (amber after explicit override), click **Download** to save `{original}.redacted.docx`. Example: `NDA_2026_final.docx` becomes `NDA_2026_final.redacted.docx`.
+On **downloadReady** (green), **downloadRepaired** (green after one internal retry), or **downloadWarning** (amber), click **Download** to save `{original}.redacted.docx`. Example: `NDA_2026_final.docx` becomes `NDA_2026_final.redacted.docx`.
 
-On **verifyFail** (red), download is blocked. See [§ 8.3](#83-verifyfail-red--blocked).
+On **downloadRisk** (red), review the survivors or check the acknowledgement box and click **Download anyway**. See [§ 8.4](#84-downloadrisk-red--warned-override).
 
 ---
 
@@ -285,53 +285,72 @@ For the common case — sending a contract to a colleague, another attorney, or 
 
 ---
 
-## 8. The three verification outcomes
+## 8. The four post-Apply outcomes
 
-After Apply, one of three banners appears. Understanding the split is critical for deciding whether to download.
+After Apply, one of four banners appears. Understanding the split is critical for deciding whether to download.
 
-### 8.1 `downloadReady` (green) — safe to ship
+### 8.1 `downloadReady` (green) — verified clean
 
 - `verify.isClean === true`: zero surviving sensitive strings in the output
-- `wordCount.sane === true`: the word count drop is within the 30% threshold
+- `warningReasons.length === 0`
+- `wordCount.sane === true`
 
 The banner shows the SHA-256 of the output file (first 4 + last 4 hex chars) and a **Download** button. Click it to save `{original}.redacted.docx`.
 
-### 8.2 `downloadWarning` (amber) — override allowed
+### 8.2 `downloadRepaired` (green) — automatic repair succeeded
+
+- pass 1 was dirty
+- the app retried once from the original bytes
+- the final verify is clean
+- no residual warnings remain
+
+This is still a clean output. The difference from `downloadReady` is that the app had to use its one internal repair pass before the final verify cleared.
+
+### 8.3 `downloadWarning` (amber) — verified clean, but deserves a spot check
 
 - `verify.isClean === true`: zero surviving sensitive strings
-- `wordCount.sane === false`: the redaction removed more than 30% of the words
+- one or more warning reasons remain
 
-**No leak was detected**, but a selection may have been too broad (for example, adding a common word like `는` to the catch-all section). You have three choices:
+Typical warning reasons:
 
-1. **검토로 돌아가기** — return to review without losing selections. Trim the over-broad entries, then Apply again.
-2. **경고를 이해하고 다운로드** — override the warning and download anyway (when the broad removal was intentional).
+- the word-count sanity check exceeded its threshold
+- preflight had to touch field / hyperlink relationship surfaces
+- repair touched non-body or formatting-sensitive surfaces
+
+**No surviving leak was detected**, but the output deserves a quick review. You can:
+
+1. **Back to review** — return without losing selections, trim broad entries, then Apply again.
+2. **Download anyway** — continue when the warning is expected and acceptable.
 3. **Start over** — discard everything and reload from scratch.
 
-### 8.3 `verifyFail` (red) — blocked
+### 8.4 `downloadRisk` (red) — warned override
 
-- `verify.isClean === false`: a sensitive string you selected still appears in the output
+- `verify.isClean === false`: one or more selected sensitive strings still survived in the generated output
+- the app already ran:
+  - preflight catch-up
+  - pass 1 redaction
+  - one automatic retry from the original bytes
 
-The banner lists every survived string with:
+The banner lists every surviving string with:
 
 - the text
 - the count
 - the source file (`word/document.xml`, `word/_rels/document.xml.rels`, etc.)
-- a **이 항목 검토** button per row → jumps to the string in the inline preview
+- the surface (`text`, `field`, or hyperlink target)
+- a **Review this item** button per row → jumps back to the inline preview
 
-**Download is blocked.** The usual recovery flow:
+The app does **not** call this output clean. You have four choices:
 
-1. Click the **첫 항목부터 검토** primary button (or the per-row **이 항목 검토**) to return to review with that string focused
-2. Inspect where it survives. Common reasons:
-   - The string appears in `word/_rels/document.xml.rels` as a hyperlink Target (use the catch-all to explicitly add the URL form)
-   - The string is in an unusual scope not covered by the selection
-   - A normalization quirk (zero-width spaces, hyphen variants)
-3. Add the exact bytes to **기타 (그 외)** if needed
-4. Apply again
+1. **Review first survivor** — go back with the first survivor focused.
+2. **Back to review** — return without focusing a specific row.
+3. Check **I understand that sensitive text may still remain in this output file.**
+4. **Download anyway** — enabled only after that acknowledgement.
 
-Rarer paths:
+Common causes:
 
-- **검토로 돌아가기** — return to review without focusing a specific string
-- **Start over** — discard state and reload
+- the string survives in a rels hyperlink target (`word/_rels/document.xml.rels`)
+- the string appears in an unusual scope or transformed literal form
+- the document contains a normalization edge case (zero-width spaces, hyphen variants, split runs)
 
 ---
 
@@ -419,13 +438,15 @@ Unlikely — the regex is strict (6 digits + hyphen + 1-8 + 6 digits). Common ex
 
 If you see a false positive, uncheck the row before Apply.
 
-### "Verification failed even though I checked everything"
+### "Verification still found survivors even though I checked everything"
 
-This is `verifyFail` — a sensitive string survived. The most common causes in v1.1:
+This is `downloadRisk` — a sensitive string survived even after preflight and the one automatic retry. The most common causes in v1.1:
 
-- **The string is in `word/_rels/document.xml.rels`** as a hyperlink Target. The banner shows the rels path. Unwrapping hyperlinks removes the display text, but the URL in the rels file stays. Add the URL (e.g., `contact@pearlabyss.com` or the full URL) to 기타 explicitly, then Apply again.
-- **Zero-width spaces or hyphen variants** in the source. The normalization layer handles most, but some exotic combinations can slip through. Add the exact visible text to 기타.
-- **Unusual scope** not covered by selections (e.g., the string only appears in a comment that survived; this should be rare since comments are stripped entirely).
+- **The string is in `word/_rels/document.xml.rels`** as a hyperlink Target. The banner shows the rels path. Unwrapping hyperlinks removes the display text, but the URL in the rels file stays.
+- **Zero-width spaces or hyphen variants** in the source. The normalization layer handles most, but some exotic combinations can slip through.
+- **Unusual scope or transformed literal form** not fully covered by the selected exact literals.
+
+At that point, the product posture is: review the survivors if you want to improve the result, or acknowledge the residual risk and download anyway.
 
 ### "The tool is slow"
 

@@ -5,11 +5,17 @@ import {
   type FinalizeOptions,
   type FinalizedReport,
 } from "./finalize.js";
+import {
+  applyRelsRepairsToZip,
+  type PreflightExpansionSummary,
+} from "./preflight-expansion.js";
 import type { ResolvedRedactionTarget } from "../selection-targets.js";
 import type { SurvivedString } from "../docx/verify.js";
 
 export type FormatWarningReason =
   | "wordCount"
+  | "preflightTouchedNonBodyScopes"
+  | "preflightTouchedFieldOrRelsSurface"
   | "repairTouchedMultipleScopes"
   | "repairTouchedNonBodyScopes"
   | "repairTouchedFieldOrRelsSurface";
@@ -25,8 +31,10 @@ export interface RepairSummary {
 }
 
 export interface GuidedFinalizeReport extends FinalizedReport {
+  readonly preflight: PreflightExpansionSummary;
   readonly repair: RepairSummary;
   readonly warningReasons: readonly FormatWarningReason[];
+  readonly residualRisk: ResidualRiskSummary;
 }
 
 export interface RepairPlan {
@@ -41,7 +49,13 @@ export type GuidedOutcomeKind =
   | "downloadReady"
   | "downloadRepaired"
   | "downloadWarning"
-  | "verifyFail";
+  | "downloadRisk";
+
+export interface ResidualRiskSummary {
+  readonly hasResidualSurvivors: boolean;
+  readonly survivorCount: number;
+  readonly requiresAcknowledgement: boolean;
+}
 
 export interface GuidedRecoveryOptions {
   readonly placeholder?: string;
@@ -52,6 +66,7 @@ export interface GuidedRecoveryParams extends GuidedRecoveryOptions {
   readonly originalBytes: Uint8Array;
   readonly selectedTargets: readonly ResolvedRedactionTarget[];
   readonly pass1Report: FinalizedReport;
+  readonly preflightSummary?: PreflightExpansionSummary;
 }
 
 export interface GuidedRecoveryDeps {
@@ -65,7 +80,7 @@ export interface GuidedRecoveryDeps {
 export function classifyGuidedReport(
   report: GuidedFinalizeReport,
 ): GuidedOutcomeKind {
-  if (!report.verify.isClean) return "verifyFail";
+  if (!report.verify.isClean) return "downloadRisk";
   if (report.warningReasons.length > 0 || !report.wordCount.sane) {
     return "downloadWarning";
   }
@@ -140,7 +155,12 @@ export async function runGuidedRecovery(
   deps: GuidedRecoveryDeps = {},
 ): Promise<GuidedFinalizeReport> {
   if (params.pass1Report.verify.isClean) {
-    return toGuidedReport(params.pass1Report, idleRepairSummary(), []);
+    return toGuidedReport(
+      params.pass1Report,
+      idleRepairSummary(),
+      undefined,
+      params.preflightSummary,
+    );
   }
 
   const repairPlan = buildRepairPlan(
@@ -167,33 +187,40 @@ export async function runGuidedRecovery(
     touchedFieldOrRelsSurface: repairPlan.touchedFieldOrRelsSurface,
   };
 
-  return toGuidedReport(pass2, repair, buildWarningReasons(pass2, repair));
+  return toGuidedReport(pass2, repair, undefined, params.preflightSummary);
 }
 
 export function toGuidedReport(
   report: FinalizedReport,
   repair: RepairSummary = idleRepairSummary(),
-  warningReasons: readonly FormatWarningReason[] = buildWarningReasons(
-    report,
-    repair,
-  ),
+  warningReasons?: readonly FormatWarningReason[],
+  preflight: PreflightExpansionSummary = idlePreflightSummary(),
 ): GuidedFinalizeReport {
   return {
     ...report,
+    preflight,
     repair,
-    warningReasons,
+    warningReasons: warningReasons ?? buildWarningReasons(report, repair, preflight),
+    residualRisk: buildResidualRiskSummary(report),
   };
 }
 
 function buildWarningReasons(
   report: FinalizedReport,
   repair: RepairSummary,
+  preflight: PreflightExpansionSummary,
 ): FormatWarningReason[] {
   if (!report.verify.isClean) return [];
 
   const reasons = new Set<FormatWarningReason>();
   if (!report.wordCount.sane) {
     reasons.add("wordCount");
+  }
+  if (preflight.touchedNonBodyScope) {
+    reasons.add("preflightTouchedNonBodyScopes");
+  }
+  if (preflight.touchedFieldSurface || preflight.touchedRelsSurface) {
+    reasons.add("preflightTouchedFieldOrRelsSurface");
   }
   if (repair.attempted && repair.touchedScopePaths.length > 1) {
     reasons.add("repairTouchedMultipleScopes");
@@ -205,6 +232,16 @@ function buildWarningReasons(
     reasons.add("repairTouchedFieldOrRelsSurface");
   }
   return [...reasons];
+}
+
+function idlePreflightSummary(): PreflightExpansionSummary {
+  return {
+    touchedScopePaths: [],
+    touchedNonBodyScope: false,
+    touchedFieldSurface: false,
+    touchedRelsSurface: false,
+    expandedLiteralCount: 0,
+  };
 }
 
 function idleRepairSummary(): RepairSummary {
@@ -225,7 +262,7 @@ async function defaultRepairPass(
   options: GuidedRecoveryOptions,
 ): Promise<FinalizedReport> {
   const zip = await JSZip.loadAsync(bytes.slice());
-  await repairRelsTargets(
+  await applyRelsRepairsToZip(
     zip,
     repairPlan.relsRepairs,
     options.placeholder,
@@ -243,69 +280,18 @@ async function defaultRepairPass(
   return finalizeRedaction(zip, finalizeOptions);
 }
 
-async function repairRelsTargets(
-  zip: JSZip,
-  relsRepairs: ReadonlyMap<string, readonly string[]>,
-  placeholder = "[REDACTED]",
-): Promise<void> {
-  for (const [path, literals] of relsRepairs) {
-    const file = zip.file(path);
-    if (file === null) continue;
-    const xml = await file.async("string");
-    const repaired = repairRelationshipTargets(xml, literals, placeholder);
-    zip.file(path, repaired);
-  }
-}
-
-function repairRelationshipTargets(
-  relsXml: string,
-  literals: readonly string[],
-  placeholder: string,
-): string {
-  if (literals.length === 0) return relsXml;
-  const sorted = sortLongestFirstUnique(literals);
-
-  return relsXml.replace(
-    /(<Relationship\b[^>]*\bTarget=")([^"]*)(")/g,
-    (_full, open: string, rawTarget: string, close: string) => {
-      const decoded = decodeXml(rawTarget);
-      let repaired = decoded;
-      for (const literal of sorted) {
-        repaired = repaired.split(literal).join(placeholder);
-      }
-      if (repaired === decoded) {
-        return `${open}${rawTarget}${close}`;
-      }
-      return `${open}${encodeXmlAttr(repaired)}${close}`;
-    },
-  );
-}
-
 function sortLongestFirstUnique(values: Iterable<string>): string[] {
   return [...new Set([...values].filter((value) => value.length > 0))].sort(
     (a, b) => b.length - a.length || a.localeCompare(b),
   );
 }
 
-function encodeXmlAttr(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function decodeXml(text: string): string {
-  return text
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) =>
-      String.fromCodePoint(Number.parseInt(hex, 16)),
-    )
-    .replace(/&#(\d+);/g, (_, dec: string) =>
-      String.fromCodePoint(Number.parseInt(dec, 10)),
-    );
+function buildResidualRiskSummary(
+  report: FinalizedReport,
+): ResidualRiskSummary {
+  return {
+    hasResidualSurvivors: !report.verify.isClean,
+    survivorCount: report.verify.survived.length,
+    requiresAcknowledgement: !report.verify.isClean,
+  };
 }

@@ -73,8 +73,12 @@
     if (
       phase.kind !== "downloadReady" &&
       phase.kind !== "downloadRepaired" &&
-      phase.kind !== "downloadWarning"
+      phase.kind !== "downloadWarning" &&
+      phase.kind !== "downloadRisk"
     ) {
+      return;
+    }
+    if (phase.kind === "downloadRisk" && !appState.canDownloadCurrentReport()) {
       return;
     }
     // `.slice()` copies into a plain-ArrayBuffer-backed view so Blob
@@ -109,6 +113,10 @@
     switch (reason) {
       case "wordCount":
         return "Broad redaction warning — the word-count drop exceeded the configured threshold.";
+      case "preflightTouchedNonBodyScopes":
+        return "Preflight touched headers, footers, notes, or other non-body surfaces before export.";
+      case "preflightTouchedFieldOrRelsSurface":
+        return "Preflight touched field or hyperlink relationship surfaces that deserve a quick spot check.";
       case "repairTouchedMultipleScopes":
         return "Automatic repair touched multiple scopes, so the output deserves a quick spot check.";
       case "repairTouchedNonBodyScopes":
@@ -418,13 +426,13 @@
         Start over
       </button>
     </div>
-  {:else if phase.kind === "verifyFail"}
+  {:else if phase.kind === "downloadRisk"}
     <div class="main-head">
       <div>
         <div class="file-name">{phase.fileName}</div>
         <div class="file-bar">
           <span class="pill">Parsed</span>
-          <span class="pill warn">Sensitive text survived</span>
+          <span class="pill warn">Residual risk</span>
         </div>
       </div>
     </div>
@@ -432,12 +440,16 @@
     <div class="verify-banner failure">
       <span class="failmark">✗</span>
       <div class="banner-body">
-        <strong>Download blocked — sensitive text survived after automatic repair</strong>
+        <strong>Sensitive text may still remain</strong>
         <p>
-          The app already retried once from the original file, but the
-          strings below still appear in the generated DOCX. Return to review
-          and inspect them before retrying.
+          Verification found {phase.report.residualRisk.survivorCount}
+          surviving string(s) after preflight and automatic repair. This
+          output is not verified clean.
         </p>
+        <div class="risk-toast">
+          Verification found surviving strings. Review them, or acknowledge the
+          residual risk to download anyway.
+        </div>
         <ul class="survival-list">
           {#each phase.report.verify.survived as s (s.targetId + s.scope.path + s.surface)}
             <li class="survival-row">
@@ -458,10 +470,23 @@
         </ul>
         {#if !phase.report.wordCount.sane}
           <p>
-            The word-count sanity check also exceeded its threshold, but
-            the surviving-text leak is the blocking issue.
+            The word-count sanity check also exceeded its threshold, so this
+            file deserves an extra spot check even if you choose to download it.
           </p>
         {/if}
+        <label class="risk-ack">
+          <input
+            type="checkbox"
+            checked={appState.residualRiskAcknowledged}
+            onchange={(e) =>
+              appState.setResidualRiskAcknowledged(
+                (e.currentTarget as HTMLInputElement).checked,
+              )}
+          />
+          <span>
+            I understand that sensitive text may still remain in this output file.
+          </span>
+        </label>
       </div>
     </div>
 
@@ -471,7 +496,7 @@
         type="button"
         onclick={() => appState.reviewCandidate(phase.report.verify.survived[0]!.targetId)}
       >
-        Review from first item
+        Review first survivor
       </button>
       <button
         class="btn-secondary"
@@ -480,14 +505,22 @@
       >
         Back to review
       </button>
+      <button
+        class="btn-download warn"
+        type="button"
+        disabled={!appState.canDownloadCurrentReport()}
+        onclick={downloadReport}
+      >
+        Download anyway
+      </button>
       <button class="btn-secondary" type="button" onclick={() => appState.reset()}>
         Start over
       </button>
     </div>
     <p class="verifyfail-hint">
       `Review this item` returns to the review screen without changing the
-      current selections and focuses that exact string. Download stays blocked
-      until the surviving leak is fixed.
+      current selections and focuses that exact string. Dirty output can only
+      be downloaded after explicit acknowledgement.
     </p>
   {:else if phase.kind === "fatalError"}
     <div class="error-card">
@@ -913,9 +946,39 @@
   }
 
   .verifyfail-actions .btn-primary,
-  .verifyfail-actions .btn-secondary {
+  .verifyfail-actions .btn-secondary,
+  .verifyfail-actions .btn-download {
     flex: 1;
     margin-top: 0;
+  }
+
+  .risk-toast {
+    margin: 12px 0 14px;
+    padding: 10px 12px;
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    border-radius: var(--radius);
+    color: #9a3412;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .risk-ack {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin-top: 14px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid var(--err-border);
+    border-radius: var(--radius);
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--ink-strong);
+  }
+
+  .risk-ack input {
+    margin-top: 2px;
   }
 
   .btn-primary {

@@ -50,6 +50,10 @@ import {
   toGuidedReport,
   type GuidedFinalizeReport,
 } from "../finalize/guided-recovery.js";
+import {
+  applyRelsRepairsToZip,
+  buildPreflightExpansionPlan,
+} from "../finalize/preflight-expansion.js";
 import { parseDefinitionClauses } from "../propagation/definition-clauses.js";
 import {
   propagateVariants,
@@ -293,16 +297,22 @@ export async function applyRedaction(
   selections: ReadonlySet<SelectionTargetId>,
   opts: ApplyOptions = {},
 ): Promise<GuidedFinalizeReport> {
-  // Fresh reload every time — see docstring.
-  const zip = await JSZip.loadAsync(bytes.slice());
   const selectedTargets: ReadonlyArray<ResolvedRedactionTarget> =
     resolveSelectedTargets(analysis.selectionTargets, selections);
+  const preflightPlan = await buildPreflightExpansionPlan(bytes, selectedTargets);
+  // Fresh reload every time — see docstring.
+  const zip = await JSZip.loadAsync(bytes.slice());
+  await applyRelsRepairsToZip(
+    zip,
+    preflightPlan.relsRepairs,
+    opts.placeholder,
+  );
   const finalizeOpts: {
     targets: ReadonlyArray<ResolvedRedactionTarget>;
     placeholder?: string;
     wordCountThresholdPct?: number;
   } = {
-    targets: selectedTargets,
+    targets: preflightPlan.targets,
   };
   if (opts.placeholder !== undefined) {
     finalizeOpts.placeholder = opts.placeholder;
@@ -312,14 +322,15 @@ export async function applyRedaction(
   }
   const pass1 = await finalizeRedaction(zip, finalizeOpts);
   if (pass1.verify.isClean) {
-    return toGuidedReport(pass1);
+    return toGuidedReport(pass1, undefined, undefined, preflightPlan.summary);
   }
 
   opts.onRepairing?.();
   const guidedParams = {
     originalBytes: bytes,
-    selectedTargets,
+    selectedTargets: preflightPlan.targets,
     pass1Report: pass1,
+    preflightSummary: preflightPlan.summary,
     ...(opts.placeholder !== undefined ? { placeholder: opts.placeholder } : {}),
     ...(opts.wordCountThresholdPct !== undefined
       ? { wordCountThresholdPct: opts.wordCountThresholdPct }

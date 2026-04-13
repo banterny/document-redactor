@@ -15,7 +15,7 @@
 5. [후보 패널 — 8개 카테고리 섹션 + 기타](#5-후보-패널--8개-카테고리-섹션--기타)
 6. [인라인 문서 프리뷰](#6-인라인-문서-프리뷰)
 7. [정의된 대리어 (D9 정책)](#7-정의된-대리어-d9-정책)
-8. [세 가지 검증 결과](#8-세-가지-검증-결과)
+8. [Apply 후 네 가지 결과](#8-apply-후-네-가지-결과)
 9. [계약서가 아닌 문서](#9-계약서가-아닌-문서)
 10. [키보드 단축키](#10-키보드-단축키)
 11. [출력 파일 검증](#11-출력-파일-검증)
@@ -29,7 +29,7 @@
 
 [최신 릴리즈](https://github.com/kipeum86/document-redactor/releases/latest) 페이지에서 **두 파일을 모두** 받으세요:
 
-- **`document-redactor.html`** — 도구 본체 (~238 KB, HTML 한 파일)
+- **`document-redactor.html`** — 도구 본체 (~247 KB, HTML 한 파일)
 - **`document-redactor.html.sha256`** — 무결성 sidecar (89 bytes)
 
 카카오톡, 이메일, USB 등으로 다른 사람에게 받은 경우에도 괜찮습니다. 다음 섹션의 검증이 바로 그런 경우를 위해 있습니다. 보낸 사람을 신뢰하는 대신 **해시를 검증** 하면 됩니다.
@@ -146,13 +146,13 @@ if ($actual -eq $expected) { "OK" } else { "MISMATCH — 실행하지 마세요"
 6. **round-trip 검증** — 출력을 다시 파싱해서 생존 민감 문자열이 0 인지 확인 (`word/_rels/*.rels` URL Target 도 포함)
 7. **word-count sanity** — 전후 단어 수 비교; 30% 이상 감소 시 경고
 
-세 가지 검증 결과 중 하나가 표시됩니다. [§ 8](#8-세-가지-검증-결과) 참조.
+Apply 후 네 가지 결과 중 하나가 표시됩니다. [§ 8](#8-apply-후-네-가지-결과) 참조.
 
 ### 4.5 — 다운로드
 
-**downloadReady** (녹색) 또는 **downloadWarning** (앰버, 명시적 override 후) 에서 **Download** 클릭 → `{원본}.redacted.docx` 저장.
+**downloadReady** (녹색), **downloadRepaired** (녹색, 1회 내부 복구 후), 또는 **downloadWarning** (앰버) 에서 **Download** 클릭 → `{원본}.redacted.docx` 저장.
 
-**verifyFail** (빨강) 에서는 다운로드가 차단됩니다. [§ 8.3](#83-verifyfail-빨강--차단) 참조.
+**downloadRisk** (빨강) 에서는 surviving item을 검토하거나 acknowledgement 체크 후 **Download anyway** 를 누를 수 있습니다. [§ 8.4](#84-downloadrisk-빨강--경고-후-override) 참조.
 
 ---
 
@@ -285,47 +285,71 @@ confidence < 1.0 인 휴리스틱 — 대문자 클러스터 (`Acme Holdings`), 
 
 ---
 
-## 8. 세 가지 검증 결과
+## 8. Apply 후 네 가지 결과
 
-### 8.1 `downloadReady` (녹색) — 배포 안전
+### 8.1 `downloadReady` (녹색) — verified clean
 
 - `verify.isClean === true`
+- `warningReasons.length === 0`
 - `wordCount.sane === true`
 
-배너에 출력 SHA-256 (앞 4 + 뒤 4) + **Download** 버튼.
+배너에 출력 SHA-256 (앞 4 + 뒤 4) + **Download** 버튼이 표시됩니다.
 
-### 8.2 `downloadWarning` (앰버) — override 허용
+### 8.2 `downloadRepaired` (녹색) — automatic repair 성공
+
+- pass 1 은 dirty 였음
+- 앱이 원본 bytes 기준으로 1회 재시도함
+- 최종 verify 는 clean
+- residual warning 없음
+
+즉, 깨끗한 출력이지만 내부 복구를 한 번 거친 경우입니다.
+
+### 8.3 `downloadWarning` (앰버) — clean 이지만 spot check 권장
 
 - `verify.isClean === true`
-- `wordCount.sane === false` (30%+ 단어 감소)
+- 하나 이상의 warning reason 이 남아 있음
 
-**누출 없음** 이지만 선택이 너무 광범위. 세 선택지:
+대표 warning:
+
+- word-count sanity threshold 초과
+- preflight 가 field / hyperlink relationship surface 를 건드림
+- repair 가 non-body 또는 formatting-sensitive surface 를 건드림
+
+**surviving leak 는 없지만** 출력물을 한 번 더 보는 게 좋습니다. 선택지는:
 
 1. **검토로 돌아가기** — 선택 유지, 과도한 항목 정리 후 다시 Apply
-2. **경고를 이해하고 다운로드** — 의도된 경우 그대로 다운로드
+2. **Download anyway** — 경고를 이해하고 그대로 다운로드
 3. **Start over** — 전부 버리고 처음부터
 
-### 8.3 `verifyFail` (빨강) — 차단
+### 8.4 `downloadRisk` (빨강) — 경고 후 override
 
 - `verify.isClean === false`
+- 앱은 이미
+  - preflight catch-up
+  - pass 1 redaction
+  - 원본 bytes 기준 1회 automatic retry
+  를 모두 수행한 뒤입니다
 
-각 생존 문자열 표시:
-- 텍스트, 개수, 소스 경로 (`word/document.xml`, `word/_rels/document.xml.rels`, 등)
-- 행마다 **이 항목 검토** → 프리뷰에서 해당 문자열에 포커스
+배너에는 surviving string 별로 다음이 표시됩니다:
 
-**다운로드 차단**. 일반 복구 순서:
+- 텍스트
+- 개수
+- 소스 경로 (`word/document.xml`, `word/_rels/document.xml.rels`, 등)
+- surface (`text`, `field`, `hyperlink target`)
+- 행마다 **Review this item** → 프리뷰에서 해당 문자열에 포커스
 
-1. **첫 항목부터 검토** 또는 행의 **이 항목 검토** → 해당 문자열로 복귀
-2. 원인 확인:
-   - `word/_rels/document.xml.rels` 의 하이퍼링크 Target (URL 형태를 기타에 추가)
-   - 선택 커버 못 한 특이 scope
-   - zero-width / hyphen variant 정규화 이슈
-3. 필요하면 정확한 바이트를 **기타 (그 외)** 에 추가
-4. 다시 Apply
+앱은 이 출력을 clean 이라고 부르지 않습니다. 선택지는:
 
-드문 경로:
-- **검토로 돌아가기** — 포커스 없이 복귀
-- **Start over** — 전체 리셋
+1. **Review first survivor** — 첫 survivor 로 복귀
+2. **Back to review** — 특정 항목 포커스 없이 복귀
+3. **I understand that sensitive text may still remain in this output file.** 체크
+4. **Download anyway** — acknowledgement 후 활성화
+
+흔한 원인:
+
+- `word/_rels/document.xml.rels` 의 하이퍼링크 Target
+- 특이 scope 또는 transformed literal form
+- zero-width / hyphen variant / split run 같은 정규화 edge case
 
 ---
 
@@ -393,12 +417,14 @@ shasum -a 256 NDA_2026_final.redacted.docx
 1. 라벨 붙어 있는지 확인 (`상호: ...`, `법인명: ...`)
 2. 없으면 **기타 (그 외)** 에 수동 추가
 
-### "다 체크했는데도 검증 실패"
+### "다 체크했는데도 survivor 가 남음"
 
-`verifyFail` — 흔한 원인:
-- **rels 파일의 하이퍼링크 Target** → URL 을 기타에 추가 후 재Apply
-- **zero-width / hyphen variant** → 보이는 정확한 텍스트를 기타에 추가
-- **특이 scope** → 드문 케이스
+이건 `downloadRisk` 상태입니다. preflight 와 1회 automatic retry 후에도 survivor 가 남았다는 뜻입니다. 흔한 원인:
+- **rels 파일의 하이퍼링크 Target**
+- **zero-width / hyphen variant**
+- **특이 scope 또는 transformed literal form**
+
+이 시점에서는 survivor 를 다시 검토해서 개선할 수도 있고, residual risk 를 인정하고 그대로 다운로드할 수도 있습니다.
 
 ### "도구가 느리다"
 

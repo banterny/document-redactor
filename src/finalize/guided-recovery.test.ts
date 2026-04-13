@@ -215,7 +215,12 @@ describe("guided-recovery", () => {
 
     expect(result.repair.finalSurvivorCount).toBe(1);
     expect(result.warningReasons).toEqual([]);
-    expect(classifyGuidedReport(result)).toBe("verifyFail");
+    expect(result.residualRisk).toEqual({
+      hasResidualSurvivors: true,
+      survivorCount: 1,
+      requiresAcknowledgement: true,
+    });
+    expect(classifyGuidedReport(result)).toBe("downloadRisk");
   });
 
   it("derives a deterministic exact-literal repair plan from pass-1 survivors", () => {

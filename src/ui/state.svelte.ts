@@ -22,7 +22,7 @@
  *   - downloadReady — verify clean, no warning, no repair needed.
  *   - downloadRepaired — guided retry succeeded with no warning left.
  *   - downloadWarning — verify clean, but format/over-redaction warning remains.
- *   - verifyFail    — sensitive text survived. Red banner, download blocked.
+ *   - downloadRisk  — sensitive text may still remain; explicit override required.
  *   - fatalError    — something threw before we could render a report.
  *
  * All transitions run through the exported verb functions (`loadFile`,
@@ -61,7 +61,7 @@ export type AppPhase =
   | {
       readonly kind: "redacting";
       readonly fileName: string;
-      /** Carried through so verifyFail can offer "back to review". */
+      /** Carried through so risk states can offer "back to review". */
       readonly bytes: Uint8Array;
       readonly analysis: Analysis;
     }
@@ -95,7 +95,7 @@ export type AppPhase =
       readonly analysis: Analysis;
     }
   | {
-      readonly kind: "verifyFail";
+      readonly kind: "downloadRisk";
       readonly fileName: string;
       readonly report: GuidedFinalizeReport;
       /** Preserved so the user can return to review and fix selections. */
@@ -150,7 +150,7 @@ function createManualAdditions(): Map<ManualCategory, Set<string>> {
 
 export function classifyFinalizedReportPhase(
   report: GuidedFinalizeReport,
-): "downloadReady" | "downloadRepaired" | "downloadWarning" | "verifyFail" {
+): "downloadReady" | "downloadRepaired" | "downloadWarning" | "downloadRisk" {
   return classifyGuidedReport(report);
 }
 
@@ -369,12 +369,16 @@ class AppState {
    */
   focusedCandidate = $state<SelectionTargetId | null>(null);
 
+  /** Dirty-output override acknowledgement. Only meaningful in downloadRisk. */
+  residualRiskAcknowledged = $state(false);
+
   private focusClearTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── Verbs ────────────────────────────────────────────────────────
 
   async loadFile(file: File): Promise<void> {
     this.phase = { kind: "parsing", fileName: file.name };
+    this.residualRiskAcknowledged = false;
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const analyzed = await analyzeZip(bytes, this.seeds);
@@ -471,6 +475,7 @@ class AppState {
   async applyNow(): Promise<void> {
     if (this.phase.kind !== "postParse") return;
     const { fileName, bytes, analysis } = this.phase;
+    this.residualRiskAcknowledged = false;
     this.phase = { kind: "redacting", fileName, bytes, analysis };
 
     try {
@@ -480,8 +485,8 @@ class AppState {
         },
       });
       const nextPhase = classifyFinalizedReportPhase(report);
-      if (nextPhase === "verifyFail") {
-        this.phase = { kind: "verifyFail", fileName, report, bytes, analysis };
+      if (nextPhase === "downloadRisk") {
+        this.phase = { kind: "downloadRisk", fileName, report, bytes, analysis };
       } else if (nextPhase === "downloadWarning") {
         this.phase = { kind: "downloadWarning", fileName, report, bytes, analysis };
       } else if (nextPhase === "downloadRepaired") {
@@ -507,7 +512,7 @@ class AppState {
    */
   backToReview(): void {
     if (
-      this.phase.kind !== "verifyFail" &&
+      this.phase.kind !== "downloadRisk" &&
       this.phase.kind !== "downloadWarning" &&
       this.phase.kind !== "downloadReady" &&
       this.phase.kind !== "downloadRepaired"
@@ -515,12 +520,13 @@ class AppState {
       return;
     }
     const { fileName, bytes, analysis } = this.phase;
+    this.residualRiskAcknowledged = false;
     this.phase = { kind: "postParse", fileName, bytes, analysis };
   }
 
   reviewCandidate(targetId: SelectionTargetId): void {
     if (
-      this.phase.kind !== "verifyFail" &&
+      this.phase.kind !== "downloadRisk" &&
       this.phase.kind !== "downloadWarning" &&
       this.phase.kind !== "downloadReady" &&
       this.phase.kind !== "downloadRepaired"
@@ -528,9 +534,27 @@ class AppState {
       return;
     }
     const { fileName, bytes, analysis } = this.phase;
+    this.residualRiskAcknowledged = false;
     this.phase = { kind: "postParse", fileName, bytes, analysis };
     if (analysis.selectionTargetById.has(targetId)) {
       this.jumpToCandidate(targetId);
+    }
+  }
+
+  setResidualRiskAcknowledged(next: boolean): void {
+    this.residualRiskAcknowledged = this.phase.kind === "downloadRisk" ? next : false;
+  }
+
+  canDownloadCurrentReport(): boolean {
+    switch (this.phase.kind) {
+      case "downloadReady":
+      case "downloadRepaired":
+      case "downloadWarning":
+        return true;
+      case "downloadRisk":
+        return this.residualRiskAcknowledged;
+      default:
+        return false;
     }
   }
 
@@ -539,6 +563,7 @@ class AppState {
     this.selections = new Set();
     this.manualAdditions = createManualAdditions();
     this.focusedCandidate = null;
+    this.residualRiskAcknowledged = false;
     if (this.focusClearTimer !== null) {
       clearTimeout(this.focusClearTimer);
       this.focusClearTimer = null;

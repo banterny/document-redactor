@@ -558,7 +558,7 @@ describe("applyRedaction — the Apply button path", () => {
     }
   });
 
-  it("runs one guided retry from the original bytes when rel targets survive pass 1", async () => {
+  it("uses preflight rel-target repairs so pass 1 stays clean without a retry", async () => {
     const email = "contact@pearlabyss.com";
     const bytes = await syntheticDocx({
       "word/document.xml": bodyWithHyperlink(email),
@@ -588,26 +588,65 @@ describe("applyRedaction — the Apply button path", () => {
       },
     });
 
-    expect(repairingCalls).toBe(1);
+    expect(repairingCalls).toBe(0);
     expect(report.verify.isClean).toBe(true);
     expect(report.repair).toEqual({
-      attempted: true,
-      repairedSurvivorCount: 1,
-      initialSurvivorCount: 1,
+      attempted: false,
+      repairedSurvivorCount: 0,
+      initialSurvivorCount: 0,
       finalSurvivorCount: 0,
-      touchedScopePaths: ["word/_rels/document.xml.rels"],
-      touchedNonBodyScope: true,
-      touchedFieldOrRelsSurface: true,
+      touchedScopePaths: [],
+      touchedNonBodyScope: false,
+      touchedFieldOrRelsSurface: false,
     });
     expect(report.warningReasons).toEqual([
-      "repairTouchedNonBodyScopes",
-      "repairTouchedFieldOrRelsSurface",
+      "preflightTouchedNonBodyScopes",
+      "preflightTouchedFieldOrRelsSurface",
     ]);
 
     const reloaded = await JSZip.loadAsync(report.outputBytes);
     const rels = await reloaded.file("word/_rels/document.xml.rels")!.async("string");
     expect(rels).toContain("mailto:[REDACTED]");
     expect(rels).not.toContain(email);
+  });
+
+  it("keeps field-surface leaks out of the retry path when preflight sees them up front", async () => {
+    const email = "contact@pearlabyss.com";
+    const bytes = await syntheticDocx({
+      "word/document.xml": `<w:document ${W_NS}><w:body><w:p><w:fldSimple w:instr=" HYPERLINK &quot;mailto:${email}&quot; "><w:r><w:t>${email}</w:t></w:r></w:fldSimple></w:p></w:body></w:document>`,
+    });
+    const analysis = withSelectionTargets({
+      entityGroups: [],
+      literalCandidates: [
+        {
+          text: email,
+          seed: email,
+          count: 1,
+          selectionTargetId: buildSelectionTargetId("auto", email),
+        },
+      ],
+      definedCandidates: [],
+      piiCandidates: [],
+      nonPiiCandidates: [],
+      fileStats: { sizeBytes: bytes.length, scopeCount: 1 },
+    });
+    const selections = new Set([buildSelectionTargetId("auto", email)]);
+    let repairingCalls = 0;
+
+    const report = await applyRedaction(bytes, analysis, selections, {
+      onRepairing: () => {
+        repairingCalls++;
+      },
+    });
+
+    expect(repairingCalls).toBe(0);
+    expect(report.verify.isClean).toBe(true);
+    expect(report.warningReasons).toEqual(["preflightTouchedFieldOrRelsSurface"]);
+    expect(report.residualRisk).toEqual({
+      hasResidualSurvivors: false,
+      survivorCount: 0,
+      requiresAcknowledgement: false,
+    });
   });
 });
 

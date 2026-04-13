@@ -113,7 +113,19 @@ function makeReport(
       touchedNonBodyScope: false,
       touchedFieldOrRelsSurface: false,
     },
+    preflight: {
+      touchedScopePaths: [],
+      touchedNonBodyScope: false,
+      touchedFieldSurface: false,
+      touchedRelsSurface: false,
+      expandedLiteralCount: 0,
+    },
     warningReasons,
+    residualRisk: {
+      hasResidualSurvivors: !opts.verifyIsClean,
+      survivorCount: opts.verifyIsClean ? 0 : 1,
+      requiresAcknowledgement: !opts.verifyIsClean,
+    },
   };
 }
 
@@ -378,7 +390,7 @@ describe("ship gate — verification recovery flow", () => {
       bytes,
       analysis,
       report,
-    } as never;
+    };
 
     const targetId = buildSelectionTargetId("auto", "ABC Corporation");
     appState.reviewCandidate(targetId);
@@ -399,7 +411,7 @@ describe("ship gate — verification recovery flow", () => {
       bytes,
       analysis,
       report,
-    } as never;
+    };
 
     appState.backToReview();
 
@@ -418,7 +430,7 @@ describe("ship gate — verification recovery flow", () => {
       bytes,
       analysis,
       report,
-    } as never;
+    };
 
     expect(appState.canDownloadCurrentReport()).toBe(false);
     appState.setResidualRiskAcknowledged(true);

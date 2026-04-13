@@ -13,7 +13,7 @@
         <img alt="document-redactor.html 다운로드" src="https://img.shields.io/badge/document--redactor.html-%EC%B5%9C%EC%8B%A0%20%EB%B0%9B%EA%B8%B0-0f766e?style=for-the-badge&logo=html5&logoColor=white" />
       </a>
       <br />
-      <sub>HTML 한 파일 · ~238 KB · 더블클릭으로 실행</sub>
+      <sub>HTML 한 파일 · ~247 KB · 더블클릭으로 실행</sub>
     </td>
     <td align="center" valign="middle">
       <a href="https://github.com/kipeum86/document-redactor/releases/latest/download/document-redactor.html.sha256">
@@ -53,7 +53,7 @@
   <img alt="CI" src="https://img.shields.io/github/actions/workflow/status/kipeum86/document-redactor/ci.yml?branch=main&label=CI&style=flat-square" />
   <img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache%202.0-0f172a?style=flat-square" />
   <img alt="single HTML distribution" src="https://img.shields.io/badge/distribution-single%20HTML-0f172a?style=flat-square" />
-  <img alt="238 KB artifact" src="https://img.shields.io/badge/current%20build-238%20KB-166534?style=flat-square" />
+  <img alt="247 KB artifact" src="https://img.shields.io/badge/current%20build-247%20KB-166534?style=flat-square" />
   <img alt="zero network requests" src="https://img.shields.io/badge/network-0%20requests-166534?style=flat-square" />
   <img alt="rule-based engine" src="https://img.shields.io/badge/detection-rule--based-1d4ed8?style=flat-square" />
   <img alt="AI none" src="https://img.shields.io/badge/AI-none-7f1d1d?style=flat-square" />
@@ -148,7 +148,7 @@ flowchart TD
     </td>
     <td width="20%" valign="top">
       <strong>현재 확인된 크기</strong><br />
-      238 KB
+      247 KB
     </td>
     <td width="20%" valign="top">
       <strong>무결성 sidecar</strong><br />
@@ -160,14 +160,14 @@ flowchart TD
     </td>
     <td width="20%" valign="top">
       <strong>자동화 테스트</strong><br />
-      1,712 tests
+      1,722 tests
     </td>
   </tr>
 </table>
 
-2026년 4월 13일 기준으로 확인한 현재 빌드:
+2026년 4월 14일 기준으로 확인한 현재 빌드:
 
-- `document-redactor.html` SHA-256: `5b04c8a8514ea6e045cbc0a7cf9e4db9507cb508f996f88713d4fdb1a6eac866`
+- `document-redactor.html` SHA-256: `b065ab14511138c6610be5a03d0ef829c8e41ce04ee4e4f63e28e4e7213150f5`
 - `shasum -a 256 -c document-redactor.html.sha256` 로 로컬 검증 완료
 
 ## 현재 릴리즈가 실제로 하는 일
@@ -183,8 +183,8 @@ flowchart TD
       당사자, 대리어, 식별자, 금액, 날짜, 조직/인물, 법률 참조, 휴리스틱, catch-all까지 섹션별로 검토할 수 있습니다.
     </td>
     <td width="33%" valign="top">
-      <strong>검증 우선 export</strong><br />
-      생성된 결과물을 다시 검사하고, 진짜 누출은 차단하며, sanity warning과 leak failure를 분리해 보여줍니다.
+      <strong>검증 기반 export</strong><br />
+      생성된 결과물을 다시 검사하고, residual survivor를 명확히 보여주며, verified-clean 다운로드와 warning 상태를 분리해 보여줍니다.
     </td>
   </tr>
   <tr>
@@ -198,7 +198,7 @@ flowchart TD
     </td>
     <td width="33%" valign="top">
       <strong>수동 복구 경로</strong><br />
-      누락된 문자열 추가, surviving item으로 복귀, sanity-only warning override까지 제공하면서도 leak protection은 유지합니다.
+      누락된 문자열 추가, surviving item으로 복귀, residual risk를 확인한 뒤에도 필요하면 다운로드를 계속할 수 있게 합니다.
     </td>
   </tr>
 </table>

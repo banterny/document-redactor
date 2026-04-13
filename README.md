@@ -13,7 +13,7 @@
         <img alt="Download document-redactor.html" src="https://img.shields.io/badge/document--redactor.html-Download%20(latest)-0f766e?style=for-the-badge&logo=html5&logoColor=white" />
       </a>
       <br />
-      <sub>Single HTML · ~238 KB · open locally</sub>
+      <sub>Single HTML · ~247 KB · open locally</sub>
     </td>
     <td align="center" valign="middle">
       <a href="https://github.com/kipeum86/document-redactor/releases/latest/download/document-redactor.html.sha256">
@@ -53,7 +53,7 @@
   <img alt="CI" src="https://img.shields.io/github/actions/workflow/status/kipeum86/document-redactor/ci.yml?branch=main&label=CI&style=flat-square" />
   <img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache%202.0-0f172a?style=flat-square" />
   <img alt="single HTML distribution" src="https://img.shields.io/badge/distribution-single%20HTML-0f172a?style=flat-square" />
-  <img alt="238 KB artifact" src="https://img.shields.io/badge/current%20build-238%20KB-166534?style=flat-square" />
+  <img alt="247 KB artifact" src="https://img.shields.io/badge/current%20build-247%20KB-166534?style=flat-square" />
   <img alt="zero network requests" src="https://img.shields.io/badge/network-0%20requests-166534?style=flat-square" />
   <img alt="rule-based engine" src="https://img.shields.io/badge/detection-rule--based-1d4ed8?style=flat-square" />
   <img alt="AI none" src="https://img.shields.io/badge/AI-none-7f1d1d?style=flat-square" />
@@ -149,7 +149,7 @@ flowchart TD
     </td>
     <td width="20%" valign="top">
       <strong>Current checked size</strong><br />
-      238 KB
+      247 KB
     </td>
     <td width="20%" valign="top">
       <strong>Integrity sidecar</strong><br />
@@ -161,14 +161,14 @@ flowchart TD
     </td>
     <td width="20%" valign="top">
       <strong>Automated coverage</strong><br />
-      1,712 tests
+      1,722 tests
     </td>
   </tr>
 </table>
 
-Current checked release artifact on April 13, 2026:
+Current checked release artifact on April 14, 2026:
 
-- `document-redactor.html` SHA-256: `5b04c8a8514ea6e045cbc0a7cf9e4db9507cb508f996f88713d4fdb1a6eac866`
+- `document-redactor.html` SHA-256: `b065ab14511138c6610be5a03d0ef829c8e41ce04ee4e4f63e28e4e7213150f5`
 - Verified locally with `shasum -a 256 -c document-redactor.html.sha256`
 
 ## What The Current Release Does
@@ -184,8 +184,8 @@ Current checked release artifact on April 13, 2026:
       Groups candidates by parties, aliases, identifiers, amounts, dates, entities, legal references, heuristics, and catch-all additions.
     </td>
     <td width="33%" valign="top">
-      <strong>Verification-first export</strong><br />
-      Re-checks the generated output, blocks true leaks, and separates leak failures from sanity warnings.
+      <strong>Verification-guided export</strong><br />
+      Re-checks the generated output, reports residual survivors clearly, and keeps warnings separate from verified-clean downloads.
     </td>
   </tr>
   <tr>
@@ -199,7 +199,7 @@ Current checked release artifact on April 13, 2026:
     </td>
     <td width="33%" valign="top">
       <strong>Manual recovery paths</strong><br />
-      Lets users add missed strings, jump back to surviving items, and override sanity-only warnings without weakening leak protection.
+      Lets users add missed strings, jump back to surviving items, and acknowledge residual risk when they still need the file.
     </td>
   </tr>
 </table>
