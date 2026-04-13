@@ -22,6 +22,11 @@ const FIXTURE = path.join(
   REPO_ROOT,
   "tests/fixtures/bilingual_nda_worst_case.docx",
 );
+const W_NS = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
+
+function bodyWith(text: string): string {
+  return `<w:document ${W_NS}><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`;
+}
 
 const SEEDS: ReadonlyArray<string> = [
   "ABC Corporation",
@@ -105,6 +110,21 @@ describe("analyzeZip", () => {
     );
     expect(kim).toBeDefined();
     expect(kim!.count).toBeGreaterThanOrEqual(1);
+  });
+
+  it("surfaces Korean landline candidates without throwing", async () => {
+    const zip = new JSZip();
+    zip.file("word/document.xml", bodyWith("대표번호 02-3446-3727"));
+
+    const bytes = await zip.generateAsync({ type: "uint8array" });
+    await expect(analyzeZip(bytes, [])).resolves.toMatchObject({
+      piiCandidates: [
+        expect.objectContaining({
+          text: "02-3446-3727",
+          kind: "phone-kr-landline",
+        }),
+      ],
+    });
   });
 
   it("populates nonPiiCandidates for Phase 1 matches on the worst-case fixture", async () => {

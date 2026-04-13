@@ -146,6 +146,30 @@ describe("detectAll", () => {
     expect(result.candidates).toEqual([]);
   });
 
+  it("auto-detected Korean text suppresses English-only rules", () => {
+    const result = detectAll("주민번호 900101-1234567 및 참고번호 12-3456789");
+    expect(result.documentLanguage).toBe("ko");
+    expect(result.candidates.map((c) => c.ruleId)).toContain(
+      "identifiers.korean-rrn",
+    );
+    expect(result.candidates.map((c) => c.ruleId)).not.toContain(
+      "identifiers.us-ein",
+    );
+  });
+
+  it("auto-detected English text suppresses Korean-only rules", () => {
+    const result = detectAll(
+      "Tax ID 12-3456789 and reference 900101-1234567 shall remain internal.",
+    );
+    expect(result.documentLanguage).toBe("en");
+    expect(result.candidates.map((c) => c.ruleId)).toContain(
+      "identifiers.us-ein",
+    );
+    expect(result.candidates.map((c) => c.ruleId)).not.toContain(
+      "identifiers.korean-rrn",
+    );
+  });
+
   it("populates structuralDefinitions from party declarations", () => {
     const result = detectAll("ABC Corporation (hereinafter as 'Buyer')");
     expect(result.structuralDefinitions).toEqual([
@@ -244,25 +268,26 @@ describe("detectAllInZip", () => {
 
   it("runs language detection per scope", async () => {
     const zip = new JSZip();
-    zip.file("word/document.xml", bodyWith("주민번호 900101-1234567"));
-    zip.file("word/header1.xml", headerWith("EIN 12-3456789"));
-    const result = await detectAllInZip(zip);
-    expect(result.candidates).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          scope: expect.objectContaining({ kind: "body" }),
-          candidate: expect.objectContaining({
-            ruleId: "identifiers.korean-rrn",
-          }),
-        }),
-        expect.objectContaining({
-          scope: expect.objectContaining({ kind: "header" }),
-          candidate: expect.objectContaining({
-            ruleId: "identifiers.us-ein",
-          }),
-        }),
-      ]),
+    zip.file(
+      "word/document.xml",
+      bodyWith("주민번호 900101-1234567 및 참고번호 12-3456789"),
     );
+    zip.file(
+      "word/header1.xml",
+      headerWith("Tax ID 12-3456789 and reference 900101-1234567"),
+    );
+    const result = await detectAllInZip(zip);
+    const bodyRuleIds = result.candidates
+      .filter((entry) => entry.scope.kind === "body")
+      .map((entry) => entry.candidate.ruleId);
+    const headerRuleIds = result.candidates
+      .filter((entry) => entry.scope.kind === "header")
+      .map((entry) => entry.candidate.ruleId);
+
+    expect(bodyRuleIds).toContain("identifiers.korean-rrn");
+    expect(bodyRuleIds).not.toContain("identifiers.us-ein");
+    expect(headerRuleIds).toContain("identifiers.us-ein");
+    expect(headerRuleIds).not.toContain("identifiers.korean-rrn");
   });
 
   it("attaches the exact footnotes scope path", async () => {
