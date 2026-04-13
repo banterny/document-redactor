@@ -16,6 +16,7 @@
   new prop through the tree.
 -->
 <script lang="ts">
+  import { APP_TITLE } from "../app-version.ts";
   import CandidatesPanel from "./CandidatesPanel.svelte";
   import DocumentPreview from "./DocumentPreview.svelte";
   import Footer from "./Footer.svelte";
@@ -44,6 +45,10 @@
     }
     window.addEventListener("keydown", onKeydown);
     return () => window.removeEventListener("keydown", onKeydown);
+  });
+
+  $effect(() => {
+    document.title = APP_TITLE;
   });
 </script>
 

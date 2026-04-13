@@ -8,13 +8,11 @@
   Placed in the grid by `App.svelte` as row 3, spanning all columns.
 -->
 <script lang="ts">
-  // This component takes no props and has no state — the empty
-  // TypeScript block exists so svelte-check can emit a module
-  // declaration for the importer (`App.svelte`).
+  import { APP_VERSION } from "../app-version.ts";
 </script>
 
 <footer class="footer">
-  Built by Kipeum Lee
+  Built by Kipeum Lee · {APP_VERSION}
 </footer>
 
 <style>
