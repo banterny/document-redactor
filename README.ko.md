@@ -13,7 +13,7 @@
         <img alt="document-redactor.html 다운로드" src="https://img.shields.io/badge/document--redactor.html-%EC%B5%9C%EC%8B%A0%20%EB%B0%9B%EA%B8%B0-0f766e?style=for-the-badge&logo=html5&logoColor=white" />
       </a>
       <br />
-      <sub>HTML 한 파일 · ~277 KB · 더블클릭으로 실행</sub>
+      <sub>HTML 한 파일 · ~276 KB · 더블클릭으로 실행</sub>
     </td>
     <td align="center" valign="middle">
       <a href="https://github.com/kipeum86/document-redactor/releases/latest/download/document-redactor.html.sha256">
@@ -53,7 +53,7 @@
   <img alt="CI" src="https://img.shields.io/github/actions/workflow/status/kipeum86/document-redactor/ci.yml?branch=main&label=CI&style=flat-square" />
   <img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache%202.0-0f172a?style=flat-square" />
   <img alt="single HTML distribution" src="https://img.shields.io/badge/distribution-single%20HTML-0f172a?style=flat-square" />
-  <img alt="277 KB artifact" src="https://img.shields.io/badge/current%20build-277%20KB-166534?style=flat-square" />
+  <img alt="276 KB artifact" src="https://img.shields.io/badge/current%20build-276%20KB-166534?style=flat-square" />
   <img alt="zero network requests" src="https://img.shields.io/badge/network-0%20requests-166534?style=flat-square" />
   <img alt="rule-based engine" src="https://img.shields.io/badge/detection-rule--based-1d4ed8?style=flat-square" />
   <img alt="AI none" src="https://img.shields.io/badge/AI-none-7f1d1d?style=flat-square" />
@@ -148,7 +148,7 @@ flowchart TD
     </td>
     <td width="20%" valign="top">
       <strong>현재 확인된 크기</strong><br />
-      277 KB
+      276 KB
     </td>
     <td width="20%" valign="top">
       <strong>무결성 sidecar</strong><br />
@@ -160,14 +160,14 @@ flowchart TD
     </td>
     <td width="20%" valign="top">
       <strong>자동화 테스트</strong><br />
-      1,739 tests
+      1,774 tests
     </td>
   </tr>
 </table>
 
-2026년 4월 14일 기준으로 확인한 현재 빌드:
+2026년 4월 18일 기준으로 확인한 현재 빌드:
 
-- `document-redactor.html` SHA-256: `323221def9ce105afbd8ea805a5ed7e0751152ec2d531d6dba84111332cd32f9`
+- `document-redactor.html` SHA-256: `4c65364179c80b3993bfee2d99715e5d3c40938d5780ff092f0e021aadc1e77e`
 - `shasum -a 256 -c document-redactor.html.sha256` 로 로컬 검증 완료
 
 ## 현재 릴리즈가 실제로 하는 일
