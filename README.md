@@ -13,7 +13,7 @@
         <img alt="Download document-redactor.html" src="https://img.shields.io/badge/document--redactor.html-Download%20(latest)-0f766e?style=for-the-badge&logo=html5&logoColor=white" />
       </a>
       <br />
-      <sub>Single HTML · ~276 KB · open locally</sub>
+      <sub>Single HTML · ~256 KB · open locally</sub>
     </td>
     <td align="center" valign="middle">
       <a href="https://github.com/kipeum86/document-redactor/releases/latest/download/document-redactor.html.sha256">
@@ -53,7 +53,7 @@
   <img alt="CI" src="https://img.shields.io/github/actions/workflow/status/kipeum86/document-redactor/ci.yml?branch=main&label=CI&style=flat-square" />
   <img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache%202.0-0f172a?style=flat-square" />
   <img alt="single HTML distribution" src="https://img.shields.io/badge/distribution-single%20HTML-0f172a?style=flat-square" />
-  <img alt="276 KB artifact" src="https://img.shields.io/badge/current%20build-276%20KB-166534?style=flat-square" />
+  <img alt="256 KB artifact" src="https://img.shields.io/badge/current%20build-256%20KB-166534?style=flat-square" />
   <img alt="zero network requests" src="https://img.shields.io/badge/network-0%20requests-166534?style=flat-square" />
   <img alt="rule-based engine" src="https://img.shields.io/badge/detection-rule--based-1d4ed8?style=flat-square" />
   <img alt="AI none" src="https://img.shields.io/badge/AI-none-7f1d1d?style=flat-square" />
@@ -149,7 +149,7 @@ flowchart TD
     </td>
     <td width="20%" valign="top">
       <strong>Current checked size</strong><br />
-      276 KB
+      256 KB
     </td>
     <td width="20%" valign="top">
       <strong>Integrity sidecar</strong><br />
@@ -168,7 +168,7 @@ flowchart TD
 
 Current checked release artifact on April 18, 2026:
 
-- `document-redactor.html` SHA-256: `4c65364179c80b3993bfee2d99715e5d3c40938d5780ff092f0e021aadc1e77e`
+- `document-redactor.html` SHA-256: `9637053fa726c6ad57f5e2f254b5bd6526e6979a1a4c2c07e62613593b04a02a`
 - Verified locally with `shasum -a 256 -c document-redactor.html.sha256`
 
 ## What The Current Release Does
