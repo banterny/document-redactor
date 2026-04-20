@@ -14,11 +14,15 @@
 
 import { ALL_HEURISTICS as _HEURISTICS } from "../rules/heuristics/index.js";
 import { ENTITIES } from "../rules/entities.js";
+import { ENTITIES_UK } from "../rules/entities-uk.js";
 import { FINANCIAL } from "../rules/financial.js";
 import { IDENTIFIERS } from "../rules/identifiers.js";
+import { IDENTIFIERS_UK } from "../rules/identifiers-uk.js";
 import { LEGAL } from "../rules/legal.js";
+import { LEGAL_UK } from "../rules/legal-uk.js";
 import { ALL_STRUCTURAL_PARSERS as _STRUCTURAL } from "../rules/structural/index.js";
 import { TEMPORAL } from "../rules/temporal.js";
+import { TEMPORAL_UK } from "../rules/temporal-uk.js";
 import type {
   Heuristic,
   RegexRule,
@@ -28,10 +32,14 @@ import type {
 /** All registered RegexRules across every category, in a stable iteration order. */
 export const ALL_REGEX_RULES: readonly RegexRule[] = [
   ...IDENTIFIERS,
+  ...IDENTIFIERS_UK,
   ...FINANCIAL,
   ...TEMPORAL,
+  ...TEMPORAL_UK,
   ...ENTITIES,
+  ...ENTITIES_UK,
   ...LEGAL,
+  ...LEGAL_UK,
 ] as const;
 
 export const ALL_STRUCTURAL_PARSERS: readonly StructuralParser[] = _STRUCTURAL;
