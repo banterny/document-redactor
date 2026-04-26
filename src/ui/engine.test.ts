@@ -37,6 +37,7 @@ const FIXTURE = path.join(
 );
 const W_NS = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
 const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
+const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
 
 function bodyWith(text: string): string {
   return `<w:document ${W_NS}><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`;
@@ -49,6 +50,7 @@ function bodyWithHyperlink(text: string): string {
 async function syntheticDocx(parts: Record<string, string>): Promise<Uint8Array> {
   const zip = new JSZip();
   zip.file("[Content_Types].xml", CONTENT_TYPES);
+  zip.file("_rels/.rels", ROOT_RELS);
   for (const [filePath, content] of Object.entries(parts)) {
     zip.file(filePath, content);
   }
@@ -272,6 +274,7 @@ describe("analyzeZip", () => {
   it("surfaces Korean landline candidates without throwing", async () => {
     const zip = new JSZip();
     zip.file("[Content_Types].xml", CONTENT_TYPES);
+    zip.file("_rels/.rels", ROOT_RELS);
     zip.file("word/document.xml", bodyWith("대표번호 02-3446-3727"));
 
     const bytes = await zip.generateAsync({ type: "uint8array" });

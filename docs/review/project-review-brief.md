@@ -386,6 +386,7 @@ The UI still has a level concept, but only `Standard` is effectively implemented
 ### 12.4 DOCX-only
 
 PDF is out of scope because it would require a fundamentally different extraction and mutation pipeline.
+The loader rejects non-DOCX ZIPs, packages missing core DOCX parts or relationship metadata, macro/VBA packages, and encrypted/password-protected package markers before analysis.
 
 ---
 

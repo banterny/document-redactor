@@ -325,6 +325,7 @@ shasum -a 256 -c document-redactor.html.sha256
 - 현재 구현된 redaction level은 `Standard` 하나입니다.
 - 이미지 안 텍스트를 위한 OCR은 없습니다.
 - embedded OLE object 내부는 순회하지 않습니다.
+- 매크로/VBA 또는 암호화/비밀번호 보호 DOCX 패키지는 지원하지 않습니다.
 - SmartArt, WordArt 텍스트는 처리하지 않습니다.
 
 ## 개발 워크플로
@@ -343,7 +344,7 @@ open dist/document-redactor.html
 참고:
 
 - 브라우저 QA는 dev server가 아니라 빌드된 `dist/document-redactor.html` 기준으로 보는 게 맞습니다.
-- 저장소에는 detection, DOCX rewrite, verification, UI state, ship gate를 포괄하는 1,712개의 자동화 테스트가 있습니다.
+- 저장소에는 detection, DOCX rewrite, verification, UI state, ship gate를 포괄하는 1,800+개의 자동화 테스트가 있습니다.
 - `dist/` 는 git에 올리지 않으므로, 릴리즈는 CI나 검증된 로컬 빌드에서 HTML과 `.sha256` 을 게시해야 합니다.
 
 ## 라이선스

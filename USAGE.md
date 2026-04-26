@@ -501,7 +501,7 @@ These are v1.1 limitations. Some are planned for future paranoid-tier work; othe
 - **No SmartArt or WordArt text.** These are special OOXML constructs the scope walker skips.
 - **No embedded Excel / PowerPoint objects.** OLE-embedded objects are treated as opaque blobs. Regular Word tables ARE fully handled.
 - **No full `<w:sdt>` content control handling.** Text inside structured document tags is walked as text but the form semantics are not preserved.
-- **No macros or VBA.** `.docm` files are not supported. Convert to `.docx` first.
+- **No macros, VBA, or encrypted/password-protected packages.** `.docm` and password-protected files are rejected. Convert to a plain `.docx` first.
 - **No undo / redo.** Each Apply is one-shot; use **검토로 돌아가기** before Apply or re-drop the file.
 - **No automatic persistent state between sessions.** Close the tab, reopen, start fresh unless you explicitly export/import a local policy JSON.
 - **No batch processing.** One file at a time.

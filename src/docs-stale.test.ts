@@ -103,13 +103,29 @@ describe("documentation stale guards", () => {
 
   it("keeps local policy import/export documented as supported", () => {
     const usage = readDoc("USAGE.md");
+    const usageKo = readDoc("USAGE.ko.md");
     const compact = readDoc("docs/review/agent-context.compact.md");
     const projectBrief = readDoc("docs/review/project-review-brief.md");
 
     expect(usage).toContain("Export policy");
     expect(usage).not.toContain("No policy files / team sharing");
+    expect(usageKo).not.toContain("정책 파일·팀 공유 없음");
     expect(compact).toContain("local policy JSON import/export");
     expect(projectBrief).toContain("src/ui/policy-file.ts");
+  });
+
+  it("documents unsupported macro and encrypted DOCX packages", () => {
+    for (const doc of ["README.md", "README.ko.md", "USAGE.md", "USAGE.ko.md"]) {
+      const text = readDoc(doc);
+      expect(text, doc).toMatch(/macro|매크로/i);
+      expect(text, doc).toMatch(/VBA/i);
+      expect(text, doc).toMatch(/encrypted|password|암호화|비밀번호/i);
+    }
+
+    const compact = readDoc("docs/review/agent-context.compact.md");
+    const projectBrief = readDoc("docs/review/project-review-brief.md");
+    expect(compact).toContain("rejects macro/encrypted packages");
+    expect(projectBrief).toContain("macro/VBA packages");
   });
 
   it("keeps the ReDoS smoke gate wired into CI", () => {

@@ -324,6 +324,7 @@ Internal phase briefs and planning notes are intentionally being removed from th
 - `Standard` is the only implemented redaction level today.
 - No OCR for text embedded inside images.
 - No traversal into embedded OLE objects.
+- No macros/VBA or encrypted/password-protected DOCX packages.
 - No SmartArt or WordArt extraction.
 
 ## Developer Workflow

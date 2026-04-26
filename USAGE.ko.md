@@ -462,11 +462,11 @@ shasum -a 256 NDA_2026_final.redacted.docx
 - **SmartArt / WordArt 없음**
 - **임베디드 Excel / PowerPoint 없음** (Word 표는 지원)
 - **`<w:sdt>` content control 전체 처리 없음**
-- **매크로 / VBA 없음** (`.docm` 미지원)
+- **매크로 / VBA / 암호화·비밀번호 보호 문서 없음** (`.docm` 과 비밀번호 보호 파일은 거부합니다. 일반 `.docx` 로 변환해 주세요.)
 - **Undo / Redo 없음**
 - **세션 간 상태 없음**
 - **배치 처리 없음**
-- **정책 파일·팀 공유 없음**
+- **팀 공유 없음** (정책 파일 import/export는 로컬 JSON 파일 워크플로만 지원합니다.)
 - **제한적인 rels Target 재작성** (`http://` / `https://` 외부 target은 제거하고, 선택된 민감 문자열이 relationship target에 있으면 치환합니다. 모든 비HTTP/opaque target을 일반적으로 정리하는 도구는 아닙니다.)
 - **이미지 EXIF 스크럽 없음**
 - **revision ID 스크럽 없음**

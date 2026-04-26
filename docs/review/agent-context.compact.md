@@ -28,7 +28,7 @@ Hard constraints:
 
 ## Core Pipeline
 
-1. `analyzeDocumentSession(bytes)` validates size limits, loads the DOCX package, and builds a read-only analysis session.
+1. `analyzeDocumentSession(bytes)` validates size limits and basic DOCX structure, rejects macro/encrypted packages, and builds a read-only analysis session.
 2. The session stores file stats, extracted scope text, rendered preview data, verify surfaces, and analysis.
 3. Detection runs over the session's extracted scope text, then `buildSelectionTargets()` creates the review/export target contract.
 4. UI review happens through `selectionTargets`, inline preview, manual additions, and local policy JSON import/export.
