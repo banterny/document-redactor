@@ -119,21 +119,21 @@ The tool is positioned as the safety step **before** sending a document to ChatG
 flowchart TD
     A[User opens single HTML file] --> B[Drop .docx]
     B --> C[UI state machine enters parsing]
-    C --> D[engine.analyzeZip]
-    D --> E[extract text from DOCX scopes]
-    E --> F[detectAllInZip]
+    C --> D[engine.analyzeDocumentSession]
+    D --> E[read-only analysis session]
+    E --> F[detect over extracted scope text]
     F --> G[structural parsers]
     F --> H[regex rules]
     F --> I[heuristics]
-    D --> J[propagation layer]
+    E --> J[propagation layer]
     G --> K[aggregated analysis model]
     H --> K
     I --> K
     J --> K
-    K --> L[postParse UI: sections + inline preview]
+    K --> L[postParse UI: sections + cached inline preview]
     L --> M[User selections]
     M --> N[engine.applyRedaction]
-    N --> O[finalizeRedaction]
+    N --> O[fresh DOCX load + finalizeRedaction]
     O --> P[redactDocx]
     P --> Q[flatten risky OOXML structures]
     P --> R[rewrite scopes]
@@ -244,15 +244,22 @@ One of the most important architectural decisions is that detection is not the s
 ### Detection side
 
 The detection layer works on extracted text and produces candidate strings.
+The UI entry point builds a read-only `DocumentAnalysisSession` so repeated
+preview rendering and preflight checks reuse already-derived data instead of
+loading the original DOCX again.
 
 Relevant files:
 
 - [`src/detection/detect-all.ts`](../../src/detection/detect-all.ts)
 - [`src/detection/_framework/runner.ts`](../../src/detection/_framework/runner.ts)
+- [`src/ui/analysis-session.ts`](../../src/ui/analysis-session.ts)
+- [`src/ui/engine.ts`](../../src/ui/engine.ts)
 
 ### Mutation side
 
 The redaction layer re-opens the DOCX package, rewrites XML scopes, removes leak vectors like comments and fields, and verifies the output independently.
+It must not receive or mutate the session ZIP/XML cache; mutation starts from
+the original bytes on every apply attempt.
 
 Relevant files:
 

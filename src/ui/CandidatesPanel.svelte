@@ -138,11 +138,13 @@
   let { phase }: Props = $props();
   let selectedCount = $derived(appState.selections.size);
   let sections = $derived.by(() =>
-    phase.kind === "postParse" ? buildSections(phase.analysis) : EMPTY_SECTIONS,
+    phase.kind === "postParse"
+      ? buildSections(phase.analysisSession.analysis)
+      : EMPTY_SECTIONS,
   );
   let totalCount = $derived.by(() =>
     phase.kind === "postParse"
-      ? countSelectionTargets(phase.analysis.selectionTargets)
+      ? countSelectionTargets(phase.analysisSession.analysis.selectionTargets)
       : 0,
   );
   let canApply = $derived(phase.kind === "postParse" && selectedCount > 0);

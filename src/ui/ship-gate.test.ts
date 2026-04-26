@@ -382,13 +382,12 @@ describe("ship gate — verification recovery flow", () => {
     if (appState.phase.kind !== "postParse") {
       throw new Error("expected postParse baseline");
     }
-    const { fileName, bytes, analysis } = appState.phase;
+    const { fileName, analysisSession } = appState.phase;
     const report = makeReport({ verifyIsClean: false, wordCountSane: true });
     appState.phase = {
       kind: "downloadRisk",
       fileName,
-      bytes,
-      analysis,
+      analysisSession,
       report,
     };
 
@@ -403,13 +402,12 @@ describe("ship gate — verification recovery flow", () => {
     if (appState.phase.kind !== "postParse") {
       throw new Error("expected postParse baseline");
     }
-    const { fileName, bytes, analysis } = appState.phase;
+    const { fileName, analysisSession } = appState.phase;
     const report = makeReport({ verifyIsClean: false, wordCountSane: true });
     appState.phase = {
       kind: "downloadRisk",
       fileName,
-      bytes,
-      analysis,
+      analysisSession,
       report,
     };
 
@@ -422,13 +420,12 @@ describe("ship gate — verification recovery flow", () => {
     if (appState.phase.kind !== "postParse") {
       throw new Error("expected postParse baseline");
     }
-    const { fileName, bytes, analysis } = appState.phase;
+    const { fileName, analysisSession } = appState.phase;
     const report = makeReport({ verifyIsClean: false, wordCountSane: true });
     appState.phase = {
       kind: "downloadRisk",
       fileName,
-      bytes,
-      analysis,
+      analysisSession,
       report,
     };
 
@@ -444,13 +441,12 @@ describe("ship gate — verification recovery flow", () => {
     if (appState.phase.kind !== "postParse") {
       throw new Error("expected postParse baseline");
     }
-    const { fileName, bytes, analysis } = appState.phase;
+    const { fileName, analysisSession } = appState.phase;
     const report = makeReport({ verifyIsClean: true, wordCountSane: false });
     appState.phase = {
       kind: "downloadWarning",
       fileName,
-      bytes,
-      analysis,
+      analysisSession,
       report,
     };
 
@@ -465,13 +461,12 @@ describe("ship gate — verification recovery flow", () => {
     if (appState.phase.kind !== "postParse") {
       throw new Error("expected postParse baseline");
     }
-    const { fileName, bytes, analysis } = appState.phase;
+    const { fileName, analysisSession } = appState.phase;
     const report = makeReport({ verifyIsClean: true, wordCountSane: false });
     appState.phase = {
       kind: "downloadWarning",
       fileName,
-      bytes,
-      analysis,
+      analysisSession,
       report,
     };
 

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
 
+import { loadDocxZip } from "../docx/load.js";
+import { collectVerifySurfaces } from "../docx/verify-surfaces.js";
 import { buildResolvedTargetsFromStrings } from "../selection-targets.js";
 import {
   applyRelsRepairsToZip,
   buildPreflightExpansionPlan,
+  buildPreflightExpansionPlanFromSurfaces,
 } from "./preflight-expansion.js";
 import type { ResolvedRedactionTarget } from "../selection-targets.js";
 
@@ -86,6 +89,21 @@ describe("preflight-expansion", () => {
       touchedRelsSurface: true,
       expandedLiteralCount: 0,
     });
+  });
+
+  it("can build the same plan from precomputed verify surfaces", async () => {
+    const email = "contact@pearlabyss.com";
+    const bytes = await syntheticDocx({
+      "word/document.xml": bodyWith("[REDACTED]"),
+      "word/_rels/document.xml.rels": `<?xml version="1.0"?><Relationships xmlns="x"><Relationship Id="rId5" Type="hyperlink" Target="mailto:${email}" TargetMode="External"/></Relationships>`,
+    });
+    const targets = buildResolvedTargetsFromStrings([email]);
+    const zip = await loadDocxZip(bytes);
+    const surfaces = await collectVerifySurfaces(zip);
+
+    await expect(buildPreflightExpansionPlan(bytes, targets)).resolves.toEqual(
+      buildPreflightExpansionPlanFromSurfaces(surfaces, targets),
+    );
   });
 
   it("records field-surface matches for selected targets without inventing new ones", async () => {

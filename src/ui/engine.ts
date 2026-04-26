@@ -7,10 +7,11 @@
  * The UI needs a coarser API that matches how a user interacts with
  * the app:
  *
- *   1. **analyzeZip(bytes, seeds?)** — drop a file, get back the full
- *      candidates tree (literals, defined terms, PII) plus file stats
- *      for the header pill row. The optional seed list is an internal
- *      propagation hook, not a public UI control. Does NOT mutate bytes.
+ *   1. **analyzeDocumentSession(bytes, seeds?)** — drop a file, get back
+ *      the full candidates tree (literals, defined terms, PII), file stats,
+ *      rendered preview data, and verify surfaces. The optional seed list is
+ *      an internal propagation hook, not a public UI control. Does NOT mutate
+ *      bytes.
  *
  *   2. **defaultSelections(analysis)** — the D9 default state for the
  *      checkbox tree: all literals checked, all PII checked, all defined
@@ -31,18 +32,17 @@
  */
 
 import {
-  detectAllInZip,
+  detectAll,
   type ScopedCandidate,
   type ScopedStructuralDefinition,
 } from "../detection/detect-all.js";
-import type JSZip from "jszip";
-import { extractTextFromZip } from "../detection/extract-text.js";
+import type { ExtractedScopeText } from "../detection/extract-text.js";
 import { normalizeForMatching } from "../detection/normalize.js";
 import { ROLE_BLACKLIST_EN } from "../detection/rules/role-blacklist-en.js";
 import { ROLE_BLACKLIST_KO } from "../detection/rules/role-blacklist-ko.js";
 import { loadDocxZip } from "../docx/load.js";
-import { listScopes } from "../docx/scopes.js";
 import type { Scope } from "../docx/types.js";
+import type { VerifySurfaces } from "../docx/verify-surfaces.js";
 import {
   finalizeRedaction,
 } from "../finalize/finalize.js";
@@ -54,6 +54,7 @@ import {
 import {
   applyRelsRepairsToZip,
   buildPreflightExpansionPlan,
+  buildPreflightExpansionPlanFromSurfaces,
 } from "../finalize/preflight-expansion.js";
 import { parseDefinitionClauses } from "../propagation/definition-clauses.js";
 import {
@@ -76,6 +77,12 @@ import {
   type SelectionTarget,
   type SelectionTargetId,
 } from "../selection-targets.js";
+import {
+  attachAnalysisToSession,
+  createDocumentAnalysisSnapshot,
+  type DocumentAnalysisSession,
+  type DocumentAnalysisSnapshot,
+} from "./analysis-session.js";
 
 /** Aggregated PII candidate — one per unique text, with scope + count info. */
 export interface PiiCandidate {
@@ -159,10 +166,11 @@ const NON_PII_SECTION: Readonly<Record<NonPiiCategory, SelectionReviewSection>> 
   heuristics: "heuristics",
 };
 
-/** Extra knobs for `applyRedaction`. Mirrors `FinalizeOptions`. */
+/** Extra knobs for `applyRedaction`. Mutation still fresh-loads original bytes. */
 export interface ApplyOptions {
   readonly placeholder?: string;
   readonly wordCountThresholdPct?: number;
+  readonly preflightSurfaces?: VerifySurfaces;
   readonly onRepairing?: () => void;
 }
 
@@ -173,32 +181,30 @@ export interface ApplyOptions {
  * future engine callers can pass seeds to exercise Lane C propagation;
  * the shipping UI calls this without seeds.
  */
+export async function analyzeDocumentSession(
+  bytes: Uint8Array,
+  seeds: ReadonlyArray<string> = [],
+): Promise<DocumentAnalysisSession> {
+  const snapshot = await createDocumentAnalysisSnapshot(bytes);
+  const analysis = analyzeSnapshot(snapshot, seeds);
+  return attachAnalysisToSession(snapshot, analysis);
+}
+
 export async function analyzeZip(
   bytes: Uint8Array,
   seeds: ReadonlyArray<string> = [],
 ): Promise<Analysis> {
-  // Copy into a fresh ArrayBuffer so JSZip can't retain a reference into
-  // whatever the caller handed us. Avoids subtle bugs where a second
-  // call to analyzeZip sees mutations JSZip made to the underlying
-  // buffer during its own processing.
-  const zip = await loadDocxZip(bytes);
+  return (await analyzeDocumentSession(bytes, seeds)).analysis;
+}
 
-  // File stats — size of the input + number of text-bearing scopes.
-  // sizeBytes comes from the caller's view (the bytes they actually
-  // dropped); scopeCount comes from the walker that Lane B uses.
-  const fileStats: FileStats = {
-    sizeBytes: bytes.length,
-    scopeCount: listScopes(zip).length,
-  };
-
-  // PII sweep (Lane A). Aggregate matches by literal text so the UI
-  // can show one candidate per unique string with a total count and
-  // the list of scopes it appeared in.
-  const { piiCandidates, nonPiiCandidates } = await aggregateAll(zip);
-
+function analyzeSnapshot(
+  snapshot: DocumentAnalysisSnapshot,
+  seeds: ReadonlyArray<string>,
+): Analysis {
+  const { fileStats, scopedText } = snapshot;
+  const { piiCandidates, nonPiiCandidates } = aggregateAll(scopedText);
   // Variant propagation (Lane C). Join every scope's text once, parse
   // definition clauses, then propagate per seed.
-  const scopedText = await extractTextFromZip(zip);
   const corpus = scopedText.map((s) => s.text).join("\n");
   const clauses = parseDefinitionClauses(corpus);
   const entityGroups = seeds.map((seed) =>
@@ -305,7 +311,13 @@ export async function applyRedaction(
 ): Promise<GuidedFinalizeReport> {
   const selectedTargets: ReadonlyArray<ResolvedRedactionTarget> =
     resolveSelectedTargets(analysis.selectionTargets, selections);
-  const preflightPlan = await buildPreflightExpansionPlan(bytes, selectedTargets);
+  const preflightPlan =
+    opts.preflightSurfaces === undefined
+      ? await buildPreflightExpansionPlan(bytes, selectedTargets)
+      : buildPreflightExpansionPlanFromSurfaces(
+          opts.preflightSurfaces,
+          selectedTargets,
+        );
   // Fresh reload every time — see docstring.
   const zip = await loadDocxZip(bytes);
   await applyRelsRepairsToZip(
@@ -346,14 +358,14 @@ export async function applyRedaction(
 }
 
 /**
- * Walk every Phase 1 detection result in the zip and partition it into the
+ * Walk every Phase 1 detection result in the extracted scopes and partition it into the
  * legacy `piiCandidates` shape plus the new `nonPiiCandidates` shape.
  */
-async function aggregateAll(zip: JSZip): Promise<{
+function aggregateAll(scopedText: readonly ExtractedScopeText[]): {
   piiCandidates: PiiCandidate[];
   nonPiiCandidates: NonPiiCandidate[];
-}> {
-  const { candidates, structuralDefinitions } = await detectAllInZip(zip);
+} {
+  const { candidates, structuralDefinitions } = detectAllInScopedText(scopedText);
 
   const piiByText = new Map<
     string,
@@ -403,6 +415,26 @@ async function aggregateAll(zip: JSZip): Promise<{
     .sort((a, b) => b.text.length - a.text.length);
 
   return { piiCandidates, nonPiiCandidates };
+}
+
+function detectAllInScopedText(scopedText: readonly ExtractedScopeText[]): {
+  candidates: ScopedCandidate[];
+  structuralDefinitions: ScopedStructuralDefinition[];
+} {
+  const candidates: ScopedCandidate[] = [];
+  const structuralDefinitions: ScopedStructuralDefinition[] = [];
+
+  for (const { scope, text } of scopedText) {
+    const result = detectAll(text);
+    for (const candidate of result.candidates) {
+      candidates.push({ scope, candidate });
+    }
+    for (const definition of result.structuralDefinitions) {
+      structuralDefinitions.push({ scope, definition });
+    }
+  }
+
+  return { candidates, structuralDefinitions };
 }
 
 function foldPiiCandidate(

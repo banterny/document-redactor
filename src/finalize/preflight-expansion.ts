@@ -1,7 +1,10 @@
 import type JSZip from "jszip";
 
 import { loadDocxZip, readZipEntry } from "../docx/load.js";
-import { collectVerifySurfaces } from "../docx/verify-surfaces.js";
+import {
+  collectVerifySurfaces,
+  type VerifySurfaces,
+} from "../docx/verify-surfaces.js";
 import type { ResolvedRedactionTarget } from "../selection-targets.js";
 
 export interface PreflightExpansionSummary {
@@ -32,6 +35,21 @@ export async function buildPreflightExpansionPlan(
 
   const zip = await loadDocxZip(bytes);
   const surfaces = await collectVerifySurfaces(zip);
+  return buildPreflightExpansionPlanFromSurfaces(surfaces, selectedTargets);
+}
+
+export function buildPreflightExpansionPlanFromSurfaces(
+  surfaces: VerifySurfaces,
+  selectedTargets: readonly ResolvedRedactionTarget[],
+): PreflightExpansionPlan {
+  if (selectedTargets.length === 0) {
+    return {
+      targets: [],
+      relsRepairs: new Map(),
+      summary: idleSummary(),
+    };
+  }
+
   const extraLiterals = new Map<string, Set<string>>();
   const relsRepairs = new Map<string, Set<string>>();
   const touchedScopePaths = new Set<string>();

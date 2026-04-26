@@ -88,4 +88,16 @@ describe("documentation stale guards", () => {
     expect(state).not.toContain(defaultSeeds);
     expect(state).not.toMatch(/\bseeds\s*=\s*\$state/);
   });
+
+  it("keeps analysis-session documentation aligned with the UI path", () => {
+    const compact = readDoc("docs/review/agent-context.compact.md");
+    const projectBrief = readDoc("docs/review/project-review-brief.md");
+    const preview = readDoc("src/ui/DocumentPreview.svelte");
+    const state = readDoc("src/ui/state.svelte.ts");
+
+    expect(compact).toContain("read-only analysis session");
+    expect(projectBrief).toContain("engine.analyzeDocumentSession");
+    expect(preview).not.toContain("loadDocxZip");
+    expect(state).toContain("preflightSurfaces: analysisSession.verifySurfaces");
+  });
 });

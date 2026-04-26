@@ -35,11 +35,15 @@ import {
   type GuidedFinalizeReport,
 } from "../finalize/guided-recovery.js";
 import {
-  analyzeZip,
+  analyzeDocumentSession,
   applyRedaction,
   defaultSelections,
   type Analysis,
 } from "./engine.js";
+import {
+  replaceSessionAnalysis,
+  type DocumentAnalysisSession,
+} from "./analysis-session.js";
 import {
   buildManualSelectionTarget,
   buildSelectionTargetId,
@@ -56,52 +60,44 @@ export type AppPhase =
   | {
       readonly kind: "postParse";
       readonly fileName: string;
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "redacting";
       readonly fileName: string;
-      /** Carried through so risk states can offer "back to review". */
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "repairing";
       readonly fileName: string;
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "downloadReady";
       readonly fileName: string;
       readonly report: GuidedFinalizeReport;
       /** Preserved so the user can return to review after a clean pass. */
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "downloadRepaired";
       readonly fileName: string;
       readonly report: GuidedFinalizeReport;
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "downloadWarning";
       readonly fileName: string;
       readonly report: GuidedFinalizeReport;
       /** Preserved so the user can return to review after a warning. */
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "downloadRisk";
       readonly fileName: string;
       readonly report: GuidedFinalizeReport;
       /** Preserved so the user can return to review and fix selections. */
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "fatalError";
@@ -368,11 +364,12 @@ class AppState {
     this.residualRiskAcknowledged = false;
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const analyzed = await analyzeZip(bytes);
+      const analyzedSession = await analyzeDocumentSession(bytes);
       const { analysis, manualSelectionIds } = mergePersistedManualTargets(
-        analyzed,
+        analyzedSession.analysis,
         this.manualAdditions,
       );
+      const analysisSession = replaceSessionAnalysis(analyzedSession, analysis);
       const baseSelections = defaultSelections(analysis);
       for (const id of manualSelectionIds) {
         baseSelections.add(id);
@@ -381,8 +378,7 @@ class AppState {
       this.phase = {
         kind: "postParse",
         fileName: file.name,
-        bytes,
-        analysis,
+        analysisSession,
       };
     } catch (err) {
       this.phase = {
@@ -421,8 +417,18 @@ class AppState {
     if (bucket.has(trimmed)) return;
     bucket.add(trimmed);
     if (this.phase.kind === "postParse") {
-      const ensured = ensureManualTarget(this.phase.analysis, category, trimmed);
-      this.phase = { ...this.phase, analysis: ensured.analysis };
+      const ensured = ensureManualTarget(
+        this.phase.analysisSession.analysis,
+        category,
+        trimmed,
+      );
+      this.phase = {
+        ...this.phase,
+        analysisSession: replaceSessionAnalysis(
+          this.phase.analysisSession,
+          ensured.analysis,
+        ),
+      };
       this.selections.add(ensured.targetId);
     }
     this.manualAdditions = new Map(this.manualAdditions);
@@ -435,8 +441,17 @@ class AppState {
     if (!bucket.has(text)) return;
     bucket.delete(text);
     if (this.phase.kind === "postParse") {
-      const removed = removeManualTarget(this.phase.analysis, text);
-      this.phase = { ...this.phase, analysis: removed.analysis };
+      const removed = removeManualTarget(
+        this.phase.analysisSession.analysis,
+        text,
+      );
+      this.phase = {
+        ...this.phase,
+        analysisSession: replaceSessionAnalysis(
+          this.phase.analysisSession,
+          removed.analysis,
+        ),
+      };
       if (!removed.keepSelected) {
         this.selections.delete(removed.targetId);
       }
@@ -461,25 +476,27 @@ class AppState {
 
   async applyNow(): Promise<void> {
     if (this.phase.kind !== "postParse") return;
-    const { fileName, bytes, analysis } = this.phase;
+    const { fileName, analysisSession } = this.phase;
+    const { bytes, analysis } = analysisSession;
     this.residualRiskAcknowledged = false;
-    this.phase = { kind: "redacting", fileName, bytes, analysis };
+    this.phase = { kind: "redacting", fileName, analysisSession };
 
     try {
       const report = await applyRedaction(bytes, analysis, this.selections, {
+        preflightSurfaces: analysisSession.verifySurfaces,
         onRepairing: () => {
-          this.phase = { kind: "repairing", fileName, bytes, analysis };
+          this.phase = { kind: "repairing", fileName, analysisSession };
         },
       });
       const nextPhase = classifyFinalizedReportPhase(report);
       if (nextPhase === "downloadRisk") {
-        this.phase = { kind: "downloadRisk", fileName, report, bytes, analysis };
+        this.phase = { kind: "downloadRisk", fileName, report, analysisSession };
       } else if (nextPhase === "downloadWarning") {
-        this.phase = { kind: "downloadWarning", fileName, report, bytes, analysis };
+        this.phase = { kind: "downloadWarning", fileName, report, analysisSession };
       } else if (nextPhase === "downloadRepaired") {
-        this.phase = { kind: "downloadRepaired", fileName, report, bytes, analysis };
+        this.phase = { kind: "downloadRepaired", fileName, report, analysisSession };
       } else {
-        this.phase = { kind: "downloadReady", fileName, report, bytes, analysis };
+        this.phase = { kind: "downloadReady", fileName, report, analysisSession };
       }
     } catch (err) {
       this.phase = {
@@ -493,7 +510,7 @@ class AppState {
   /**
    * Return to the review panel from any post-redaction outcome state.
    * Preserves the user's selections + manualAdditions so they can adjust
-   * and retry without re-analyzing the file. The bytes and analysis are
+   * and retry without re-analyzing the file. The analysis session is
    * carried in the phase object (see AppPhase) specifically to make this
    * round-trip possible.
    */
@@ -506,9 +523,9 @@ class AppState {
     ) {
       return;
     }
-    const { fileName, bytes, analysis } = this.phase;
+    const { fileName, analysisSession } = this.phase;
     this.residualRiskAcknowledged = false;
-    this.phase = { kind: "postParse", fileName, bytes, analysis };
+    this.phase = { kind: "postParse", fileName, analysisSession };
   }
 
   reviewCandidate(targetId: SelectionTargetId): void {
@@ -520,10 +537,10 @@ class AppState {
     ) {
       return;
     }
-    const { fileName, bytes, analysis } = this.phase;
+    const { fileName, analysisSession } = this.phase;
     this.residualRiskAcknowledged = false;
-    this.phase = { kind: "postParse", fileName, bytes, analysis };
-    if (analysis.selectionTargetById.has(targetId)) {
+    this.phase = { kind: "postParse", fileName, analysisSession };
+    if (analysisSession.analysis.selectionTargetById.has(targetId)) {
       this.jumpToCandidate(targetId);
     }
   }

@@ -15,6 +15,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import JSZip from "jszip";
 
 import {
+  analyzeDocumentSession,
   analyzeZip,
   applyRedaction,
   defaultSelections,
@@ -187,6 +188,19 @@ describe("analyzeZip", () => {
     expect(analysis.piiCandidates.length).toBeGreaterThan(0);
     expect(analysis.fileStats.sizeBytes).toBeGreaterThan(0);
     expect(analysis.fileStats.scopeCount).toBeGreaterThanOrEqual(5);
+  });
+
+  it("builds a read-only analysis session for preview and preflight reuse", async () => {
+    const session = await analyzeDocumentSession(bytes, SEEDS);
+
+    expect(session.bytes).toBe(bytes);
+    expect(session.analysis.entityGroups.length).toBe(SEEDS.length);
+    expect(session.scopedText.length).toBe(session.analysis.fileStats.scopeCount);
+    const renderedDoc = await session.renderedDoc;
+    expect(renderedDoc.scopes.length).toBeGreaterThan(0);
+    expect(session.verifySurfaces.scopesChecked).toBeGreaterThanOrEqual(
+      session.analysis.fileStats.scopeCount,
+    );
   });
 
   it("keeps the Analysis shape unchanged in Phase 3", async () => {
