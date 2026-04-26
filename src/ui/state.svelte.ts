@@ -45,6 +45,15 @@ import {
   type DocumentAnalysisSession,
 } from "./analysis-session.js";
 import {
+  createPolicyFile,
+  parsePolicyFileJson,
+  policyEntryKey,
+  serializePolicyFile,
+  type PolicyCategory,
+  type PolicyEntry,
+  type PolicyFile,
+} from "./policy-file.js";
+import {
   buildManualSelectionTarget,
   buildSelectionTargetId,
   type SelectionReviewSection,
@@ -113,13 +122,7 @@ export type AppPhase =
  *
  * Defined term labels have no manual-add affordance.
  */
-export type ManualCategory =
-  | "literals"
-  | "financial"
-  | "temporal"
-  | "entities"
-  | "legal"
-  | "other";
+export type ManualCategory = PolicyCategory;
 
 function createManualAdditions(): Map<ManualCategory, Set<string>> {
   return new Map([
@@ -130,6 +133,10 @@ function createManualAdditions(): Map<ManualCategory, Set<string>> {
     ["legal", new Set()],
     ["other", new Set()],
   ]);
+}
+
+function createManualSelectionDefaults(): Map<string, boolean> {
+  return new Map();
 }
 
 export function classifyFinalizedReportPhase(
@@ -160,17 +167,20 @@ function manualCategoryToSection(
 function mergePersistedManualTargets(
   analysis: Analysis,
   manualAdditions: ReadonlyMap<ManualCategory, ReadonlySet<string>>,
-): { analysis: Analysis; manualSelectionIds: Set<SelectionTargetId> } {
+  manualSelectionDefaults: ReadonlyMap<string, boolean>,
+): { analysis: Analysis; manualSelectionDecisions: Map<SelectionTargetId, boolean> } {
   let selectionTargets = [...analysis.selectionTargets];
   let selectionTargetById = new Map(analysis.selectionTargetById);
-  const manualSelectionIds = new Set<SelectionTargetId>();
+  const manualSelectionDecisions = new Map<SelectionTargetId, boolean>();
 
   for (const [category, values] of manualAdditions.entries()) {
     for (const text of values) {
+      const defaultSelected =
+        manualSelectionDefaults.get(policyEntryKey({ category, text })) ?? true;
       const autoId = buildSelectionTargetId("auto", text);
       const autoTarget = selectionTargetById.get(autoId);
       if (autoTarget !== undefined) {
-        manualSelectionIds.add(autoId);
+        manualSelectionDecisions.set(autoId, defaultSelected);
         if (!autoTarget.sourceKinds.includes("manual")) {
           const merged = {
             ...autoTarget,
@@ -197,7 +207,7 @@ function mergePersistedManualTargets(
           manualTarget,
         );
       }
-      manualSelectionIds.add(manualTarget.id);
+      manualSelectionDecisions.set(manualTarget.id, defaultSelected);
     }
   }
 
@@ -207,7 +217,7 @@ function mergePersistedManualTargets(
       selectionTargets,
       selectionTargetById,
     },
-    manualSelectionIds,
+    manualSelectionDecisions,
   };
 }
 
@@ -346,6 +356,19 @@ class AppState {
   );
 
   /**
+   * Selection defaults for manual additions, keyed by category + text.
+   * UI-created additions default to selected; imported policy entries can
+   * intentionally restore an unchecked manual candidate.
+   */
+  manualSelectionDefaults = $state<Map<string, boolean>>(
+    createManualSelectionDefaults(),
+  );
+
+  /** Last local policy import/export status shown in the review panel. */
+  policyStatus = $state<string | null>(null);
+  policyImportError = $state<string | null>(null);
+
+  /**
    * Focused selection target id — set when the user clicks the jump-to
    * affordance in the candidates list or review banner. The rendered
    * document body watches this and scrolls the first matching mark into view.
@@ -365,14 +388,19 @@ class AppState {
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const analyzedSession = await analyzeDocumentSession(bytes);
-      const { analysis, manualSelectionIds } = mergePersistedManualTargets(
+      const { analysis, manualSelectionDecisions } = mergePersistedManualTargets(
         analyzedSession.analysis,
         this.manualAdditions,
+        this.manualSelectionDefaults,
       );
       const analysisSession = replaceSessionAnalysis(analyzedSession, analysis);
       const baseSelections = defaultSelections(analysis);
-      for (const id of manualSelectionIds) {
-        baseSelections.add(id);
+      for (const [id, selected] of manualSelectionDecisions) {
+        if (selected) {
+          baseSelections.add(id);
+        } else {
+          baseSelections.delete(id);
+        }
       }
       this.selections = baseSelections;
       this.phase = {
@@ -391,10 +419,17 @@ class AppState {
 
   toggleSelection(targetId: SelectionTargetId): void {
     if (this.phase.kind !== "postParse") return;
+    const target = this.phase.analysisSession.analysis.selectionTargetById.get(targetId);
+    let selected: boolean;
     if (this.selections.has(targetId)) {
       this.selections.delete(targetId);
+      selected = false;
     } else {
       this.selections.add(targetId);
+      selected = true;
+    }
+    if (target?.sourceKinds.includes("manual") === true) {
+      this.rememberManualSelectionDefault(target.displayText, selected);
     }
     // Defensive reactivity: plain Set mutations do not reliably trigger
     // Svelte 5 re-renders across runtime versions. Reassign the reference
@@ -416,6 +451,7 @@ class AppState {
     if (bucket === undefined) return;
     if (bucket.has(trimmed)) return;
     bucket.add(trimmed);
+    this.manualSelectionDefaults.set(policyEntryKey({ category, text: trimmed }), true);
     if (this.phase.kind === "postParse") {
       const ensured = ensureManualTarget(
         this.phase.analysisSession.analysis,
@@ -432,6 +468,7 @@ class AppState {
       this.selections.add(ensured.targetId);
     }
     this.manualAdditions = new Map(this.manualAdditions);
+    this.manualSelectionDefaults = new Map(this.manualSelectionDefaults);
     this.selections = new Set(this.selections);
   }
 
@@ -440,6 +477,7 @@ class AppState {
     if (bucket === undefined) return;
     if (!bucket.has(text)) return;
     bucket.delete(text);
+    this.manualSelectionDefaults.delete(policyEntryKey({ category, text }));
     if (this.phase.kind === "postParse") {
       const removed = removeManualTarget(
         this.phase.analysisSession.analysis,
@@ -460,7 +498,103 @@ class AppState {
       this.selections.delete(buildSelectionTargetId("auto", text));
     }
     this.manualAdditions = new Map(this.manualAdditions);
+    this.manualSelectionDefaults = new Map(this.manualSelectionDefaults);
     this.selections = new Set(this.selections);
+  }
+
+  exportPolicyJson(name = "Document redaction policy"): string {
+    const entries: PolicyEntry[] = [];
+    for (const [category, values] of this.manualAdditions.entries()) {
+      for (const text of values) {
+        entries.push({
+          text,
+          category,
+          defaultSelected: this.manualSelectionDefaultFor(category, text),
+        });
+      }
+    }
+    const policy = createPolicyFile(entries, { name });
+    this.policyStatus = `Exported ${policy.entries.length} policy item(s).`;
+    this.policyImportError = null;
+    return serializePolicyFile(policy);
+  }
+
+  importPolicyText(json: string): PolicyFile | null {
+    let policy: PolicyFile;
+    try {
+      policy = parsePolicyFileJson(json);
+    } catch (err) {
+      this.policyImportError = err instanceof Error ? err.message : String(err);
+      this.policyStatus = null;
+      return null;
+    }
+
+    this.applyPolicy(policy);
+    this.policyImportError = null;
+    this.policyStatus = `Imported ${policy.entries.length} policy item(s).`;
+    return policy;
+  }
+
+  private applyPolicy(policy: PolicyFile): void {
+    let nextAnalysis =
+      this.phase.kind === "postParse" ? this.phase.analysisSession.analysis : null;
+
+    for (const entry of policy.entries) {
+      const bucket = this.manualAdditions.get(entry.category);
+      if (bucket === undefined) continue;
+      bucket.add(entry.text);
+      this.manualSelectionDefaults.set(policyEntryKey(entry), entry.defaultSelected);
+
+      if (nextAnalysis !== null && this.phase.kind === "postParse") {
+        const ensured = ensureManualTarget(nextAnalysis, entry.category, entry.text);
+        nextAnalysis = ensured.analysis;
+        if (entry.defaultSelected) {
+          this.selections.add(ensured.targetId);
+        } else {
+          this.selections.delete(ensured.targetId);
+        }
+      }
+    }
+
+    if (nextAnalysis !== null && this.phase.kind === "postParse") {
+      this.phase = {
+        ...this.phase,
+        analysisSession: replaceSessionAnalysis(
+          this.phase.analysisSession,
+          nextAnalysis,
+        ),
+      };
+    }
+    this.manualAdditions = new Map(this.manualAdditions);
+    this.manualSelectionDefaults = new Map(this.manualSelectionDefaults);
+    this.selections = new Set(this.selections);
+  }
+
+  private manualSelectionDefaultFor(
+    category: ManualCategory,
+    text: string,
+  ): boolean {
+    if (this.phase.kind === "postParse") {
+      const analysis = this.phase.analysisSession.analysis;
+      const autoId = buildSelectionTargetId("auto", text);
+      if (analysis.selectionTargetById.has(autoId)) {
+        return this.selections.has(autoId);
+      }
+      const manualId = buildSelectionTargetId("manual", text);
+      if (analysis.selectionTargetById.has(manualId)) {
+        return this.selections.has(manualId);
+      }
+    }
+    return this.manualSelectionDefaults.get(policyEntryKey({ category, text })) ?? true;
+  }
+
+  private rememberManualSelectionDefault(text: string, selected: boolean): void {
+    for (const [category, bucket] of this.manualAdditions.entries()) {
+      if (!bucket.has(text)) continue;
+      this.manualSelectionDefaults.set(policyEntryKey({ category, text }), selected);
+      this.manualSelectionDefaults = new Map(this.manualSelectionDefaults);
+      return;
+    }
   }
 
   jumpToCandidate(targetId: SelectionTargetId): void {
@@ -572,8 +706,11 @@ class AppState {
     this.phase = { kind: "idle" };
     this.selections = new Set();
     this.manualAdditions = createManualAdditions();
+    this.manualSelectionDefaults = createManualSelectionDefaults();
     this.focusedCandidate = null;
     this.residualRiskAcknowledged = false;
+    this.policyStatus = null;
+    this.policyImportError = null;
     if (this.focusClearTimer !== null) {
       clearTimeout(this.focusClearTimer);
       this.focusClearTimer = null;

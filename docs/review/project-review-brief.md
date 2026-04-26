@@ -160,6 +160,7 @@ The project is intentionally split into a few narrow layers.
 | Finalization | [`src/finalize/`](../../src/finalize) | Orchestrates redaction, word-count sanity, deterministic bytes, SHA-256 |
 | UI engine | [`src/ui/engine.ts`](../../src/ui/engine.ts) | Adapts pure pipeline modules into UI-facing analysis/apply APIs |
 | UI state and components | [`src/ui/`](../../src/ui) | State machine, review UI, inline preview, banners, controls |
+| Local policy files | [`src/ui/policy-file.ts`](../../src/ui/policy-file.ts) | JSON schema/validation for manual additions and selection defaults |
 | Packaging | [`vite.config.ts`](../../vite.config.ts) | Single-file build, CSP assertions, size cap, release sidecar hash |
 
 ---
@@ -216,6 +217,7 @@ This report directly drives the UI’s final states.
 ## 7. Current runtime states in the UI
 
 The app uses a small, explicit state machine in [`src/ui/state.svelte.ts`](../../src/ui/state.svelte.ts).
+Local policy import/export is deliberately not a new phase; invalid policy JSON is held as review-panel state so it does not discard the current document.
 
 Primary states:
 

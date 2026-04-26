@@ -100,4 +100,15 @@ describe("documentation stale guards", () => {
     expect(preview).not.toContain("loadDocxZip");
     expect(state).toContain("preflightSurfaces: analysisSession.verifySurfaces");
   });
+
+  it("keeps local policy import/export documented as supported", () => {
+    const usage = readDoc("USAGE.md");
+    const compact = readDoc("docs/review/agent-context.compact.md");
+    const projectBrief = readDoc("docs/review/project-review-brief.md");
+
+    expect(usage).toContain("Export policy");
+    expect(usage).not.toContain("No policy files / team sharing");
+    expect(compact).toContain("local policy JSON import/export");
+    expect(projectBrief).toContain("src/ui/policy-file.ts");
+  });
 });

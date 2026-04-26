@@ -1,6 +1,6 @@
 # Agent Context Compact — document-redactor
 
-Last synced with local commit: `5dd8cce`
+Last synced with local commit: `7ba4cb4`
 
 Use this as the first context packet for external engineering review. Open longer docs only when a finding needs detail.
 
@@ -30,7 +30,7 @@ Hard constraints:
 1. `analyzeDocumentSession(bytes)` validates size limits, loads the DOCX package, and builds a read-only analysis session.
 2. The session stores file stats, extracted scope text, rendered preview data, verify surfaces, and analysis.
 3. Detection runs over the session's extracted scope text, then `buildSelectionTargets()` creates the review/export target contract.
-4. UI review happens through `selectionTargets`, inline preview, and manual additions.
+4. UI review happens through `selectionTargets`, inline preview, manual additions, and local policy JSON import/export.
 5. `resolveSelectedTargets()` turns checked targets into redaction and verification literals.
 6. Preflight expands selected literals across cached verify surfaces and plans `.rels` repairs.
 7. `applyRedaction()` fresh-loads the original bytes before mutation.
@@ -48,6 +48,7 @@ Hard constraints:
 
 - `src/selection-targets.ts` — selection ids, literal variants, selected target resolution.
 - `src/ui/analysis-session.ts` — read-only parse/preview/preflight cache.
+- `src/ui/policy-file.ts` — local JSON policy schema and validation.
 - `src/ui/state.svelte.ts` — phase machine, manual additions, download acknowledgement.
 - `src/ui/CandidatesPanel.svelte` — review grouping/count display.
 - `src/ui/DocumentPreview.svelte` — download action, preview surface, final banners.

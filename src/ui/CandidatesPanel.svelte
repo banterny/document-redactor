@@ -136,6 +136,7 @@
   ];
 
   let { phase }: Props = $props();
+  let policyInput: HTMLInputElement | null = $state(null);
   let selectedCount = $derived(appState.selections.size);
   let sections = $derived.by(() =>
     phase.kind === "postParse"
@@ -254,6 +255,26 @@
     }
     return candidate;
   }
+
+  function exportPolicy(): void {
+    const json = appState.exportPolicyJson();
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "document-redactor.policy.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importPolicy(e: Event): Promise<void> {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file === undefined) return;
+    const text = await file.text();
+    appState.importPolicyText(text);
+    input.value = "";
+  }
 </script>
 
 <aside class="panel">
@@ -261,6 +282,30 @@
     <div class="panel-head">
       <h2 class="panel-title">Candidates</h2>
       <p class="panel-sub">Review every string before redaction. Categories below.</p>
+      <div class="policy-actions">
+        <button class="policy-btn" type="button" onclick={exportPolicy}>
+          Export policy
+        </button>
+        <button
+          class="policy-btn"
+          type="button"
+          onclick={() => policyInput?.click()}
+        >
+          Import policy
+        </button>
+        <input
+          bind:this={policyInput}
+          class="policy-input"
+          type="file"
+          accept="application/json,.json"
+          onchange={(e) => void importPolicy(e)}
+        />
+      </div>
+      {#if appState.policyImportError !== null}
+        <p class="policy-message error">{appState.policyImportError}</p>
+      {:else if appState.policyStatus !== null}
+        <p class="policy-message">{appState.policyStatus}</p>
+      {/if}
     </div>
 
     <div class="panel-body">
@@ -390,6 +435,43 @@
     font-size: 12px;
     line-height: 1.5;
     color: var(--ink-soft);
+  }
+
+  .policy-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .policy-btn {
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--ink);
+    padding: 6px 9px;
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  .policy-btn:hover {
+    border-color: var(--primary-border);
+    color: var(--primary-ink);
+    background: var(--primary-bg);
+  }
+
+  .policy-input {
+    display: none;
+  }
+
+  .policy-message {
+    margin: 8px 0 0;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--ink-soft);
+  }
+
+  .policy-message.error {
+    color: var(--err);
   }
 
   .panel-body {

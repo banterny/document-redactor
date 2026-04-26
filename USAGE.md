@@ -128,6 +128,8 @@ The right panel groups candidates into **8 category sections** plus a catch-all.
 
 Each row has a **↓ jump** button. Click it to scroll the document to the first occurrence of that candidate, with a brief pulse animation to draw your eye.
 
+Use **Export policy** to save the current manual additions and their selected/unchecked defaults as a local JSON file. Use **Import policy** to apply that JSON to another document; policy files contain only strings/categories/defaults, not DOCX content.
+
 See [§ 5](#5-the-candidate-panel--8-category-sections--catch-all) for the full section breakdown.
 
 ### Step 4.4 — Press Apply
@@ -501,9 +503,9 @@ These are v1.1 limitations. Some are planned for future paranoid-tier work; othe
 - **No full `<w:sdt>` content control handling.** Text inside structured document tags is walked as text but the form semantics are not preserved.
 - **No macros or VBA.** `.docm` files are not supported. Convert to `.docx` first.
 - **No undo / redo.** Each Apply is one-shot; use **검토로 돌아가기** before Apply or re-drop the file.
-- **No persistent state between sessions.** Close the tab, reopen, start fresh. (Manual additions persist ONLY within the same session.)
+- **No automatic persistent state between sessions.** Close the tab, reopen, start fresh unless you explicitly export/import a local policy JSON.
 - **No batch processing.** One file at a time.
-- **No policy files / team sharing.** No import/export of selection sets across users.
+- **No cloud policy sync or accounts.** Policy import/export is a local JSON file workflow only.
 - **Limited `word/_rels/*.rels` Target rewriting.** The tool strips external `http://` / `https://` relationship targets and repairs selected literals found in relationship targets, then verifies that sensitive strings do not survive. It is not a general-purpose relationship sanitizer for every possible non-HTTP or opaque target.
 - **No image EXIF scrubbing.** Images inside the DOCX keep their original metadata (GPS, camera info).
 - **No revision-ID scrubbing.** `w:rsidR` identifiers stay. Usually harmless, but in theory allow author correlation across documents.

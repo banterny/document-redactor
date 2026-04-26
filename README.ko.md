@@ -205,7 +205,7 @@ flowchart TD
     </td>
     <td width="33%" valign="top">
       <strong>수동 복구 경로</strong><br />
-      누락된 문자열 추가, surviving item으로 복귀, residual risk를 확인한 뒤에도 필요하면 다운로드를 계속할 수 있게 합니다.
+      누락된 문자열 추가, 로컬 policy JSON 재사용, surviving item으로 복귀, residual risk를 확인한 뒤에도 필요하면 다운로드를 계속할 수 있게 합니다.
     </td>
   </tr>
 </table>

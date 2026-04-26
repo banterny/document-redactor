@@ -206,7 +206,7 @@ Current checked release artifact on April 18, 2026:
     </td>
     <td width="33%" valign="top">
       <strong>Manual recovery paths</strong><br />
-      Lets users add missed strings, jump back to surviving items, and acknowledge residual risk when they still need the file.
+      Lets users add missed strings, reuse local policy JSON files, jump back to surviving items, and acknowledge residual risk when they still need the file.
     </td>
   </tr>
 </table>
