@@ -47,6 +47,7 @@ import {
   type SelectionTarget,
   type SelectionTargetId,
 } from "../selection-targets.js";
+import { canDownloadReport, type DownloadPolicyKind } from "./download-policy.js";
 
 /** Discriminated union of every state the app can be in. */
 export type AppPhase =
@@ -204,6 +205,7 @@ function mergePersistedManualTargets(
       const manualTarget = buildManualSelectionTarget(
         text,
         manualCategoryToSection(category),
+        analysis.manualMatchCorpus,
       );
       if (!selectionTargetById.has(manualTarget.id)) {
         selectionTargets = [...selectionTargets, manualTarget];
@@ -259,6 +261,7 @@ function ensureManualTarget(
   const manualTarget = buildManualSelectionTarget(
     text,
     manualCategoryToSection(category),
+    analysis.manualMatchCorpus,
   );
   if (analysis.selectionTargetById.has(manualTarget.id)) {
     return { analysis, targetId: manualTarget.id };
@@ -546,16 +549,22 @@ class AppState {
   }
 
   canDownloadCurrentReport(): boolean {
+    let policyKind: DownloadPolicyKind;
     switch (this.phase.kind) {
       case "downloadReady":
       case "downloadRepaired":
+        policyKind = "strictClean";
+        break;
       case "downloadWarning":
-        return true;
+        policyKind = "warning";
+        break;
       case "downloadRisk":
-        return this.residualRiskAcknowledged;
+        policyKind = "risk";
+        break;
       default:
         return false;
     }
+    return canDownloadReport(policyKind, this.residualRiskAcknowledged);
   }
 
   reset(): void {

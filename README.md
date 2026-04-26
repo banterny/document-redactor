@@ -91,6 +91,13 @@
   </tr>
 </table>
 
+## Current Guardrails
+
+- Input files are capped at **50 MB**.
+- Any single decompressed ZIP entry is capped at **20 MB**.
+- DOCX relationship files (`*.rels`) are checked during verification.
+- External `http://` and `https://` relationship targets are stripped from output, and selected literals found in relationship targets are repaired before verification.
+
 ## What Problem It Solves
 
 Legal teams increasingly want to send contracts, pleadings, memos, and court documents into AI assistants for summary, issue spotting, or clause review. The blocker is obvious: those files contain company names, people, phone numbers, IDs, bank data, case references, and other strings you should not upload raw.
@@ -126,7 +133,7 @@ flowchart TD
     E --> F["✂️ <b>Apply</b> redaction<br/>+ scrub metadata<br/>+ strip fields"]
     F --> G{"✅ <b>Verify</b><br/>round-trip scan<br/>+ rels check"}
     G -->|clean| H["💾 <b>Download</b><br/>.redacted.docx<br/>+ SHA-256 sidecar"]
-    G -->|leak detected| I["🔴 Block download<br/>+ jump to<br/>survived item"]
+    G -->|leak detected| I["🔴 Risk review<br/>+ jump to<br/>survived item"]
 
     classDef default fill:#0f172a,stroke:#1e3a5f,stroke-width:2px,color:#f8fafc;
     classDef action fill:#0f766e,stroke:#14b8a6,color:#ffffff;

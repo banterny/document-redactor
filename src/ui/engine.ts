@@ -34,6 +34,7 @@ import {
   type ScopedCandidate,
   type ScopedStructuralDefinition,
 } from "../detection/detect-all.js";
+import type JSZip from "jszip";
 import { extractTextFromZip } from "../detection/extract-text.js";
 import { normalizeForMatching } from "../detection/normalize.js";
 import { ROLE_BLACKLIST_EN } from "../detection/rules/role-blacklist-en.js";
@@ -141,6 +142,8 @@ export interface Analysis {
   readonly selectionTargets: ReadonlyArray<SelectionTarget>;
   /** By-id lookup used by review and selection-resolution seams. */
   readonly selectionTargetById: ReadonlyMap<SelectionTargetId, SelectionTarget>;
+  /** Visible document text used to recover exact literals for manual additions. */
+  readonly manualMatchCorpus?: string;
   readonly fileStats: FileStats;
 }
 
@@ -241,6 +244,7 @@ export async function analyzeZip(
         ruleId: candidate.ruleId,
         reviewSection: NON_PII_SECTION[candidate.category],
         defaultSelected: candidate.confidence === 1.0,
+        confidence: candidate.confidence,
       }),
     ),
   ]);
@@ -262,6 +266,7 @@ export async function analyzeZip(
     nonPiiCandidates: nonPiiCandidatesWithIds,
     selectionTargets,
     selectionTargetById,
+    manualMatchCorpus: corpus,
     fileStats,
   };
 }
@@ -547,12 +552,13 @@ function toSelectionOccurrence(
   options: {
     scope?: Scope | null;
     ruleId?: string | null;
+    confidence?: number;
     sourceKind: SelectionOccurrenceInput["sourceKind"];
     reviewSection: SelectionReviewSection;
     defaultSelected: boolean;
   },
 ): SelectionOccurrenceInput {
-  return {
+  const occurrence: SelectionOccurrenceInput = {
     scope: options.scope ?? null,
     text,
     normalizedText: normalizeForMatching(text).text,
@@ -561,4 +567,8 @@ function toSelectionOccurrence(
     reviewSection: options.reviewSection,
     defaultSelected: options.defaultSelected,
   };
+  if (options.confidence !== undefined) {
+    return { ...occurrence, confidence: options.confidence };
+  }
+  return occurrence;
 }

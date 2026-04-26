@@ -110,7 +110,7 @@ if ($actual -eq $expected) { "OK" } else { "MISMATCH — 실행하지 마세요"
 
 ### 4.1 — 파일 드롭
 
-드롭존에 `.docx` 를 끌어다 놓거나 "choose a file" 링크로 선택하세요. 도구가 파일을 로드하고 메모리에서 풀어, 모든 텍스트 영역 (본문, 머리글, 바닥글, 각주, 미주, 메모) 을 훑습니다. 보통 계약서는 1 초 안에 파싱됩니다.
+드롭존에 `.docx` 를 끌어다 놓거나 "choose a file" 링크로 선택하세요. 도구는 **50 MB** 이하의 입력 파일만 받고, 압축 해제된 ZIP 내부 개별 항목은 **20 MB**까지만 읽습니다. 파일은 메모리에서 풀고 모든 텍스트 영역 (본문, 머리글, 바닥글, 각주, 미주, 메모) 을 훑습니다. 보통 계약서는 1 초 안에 파싱됩니다.
 
 > **파일은 머신 밖으로 나가지 않습니다.** 브라우저 탭 안의 JavaScript 변수에만 있습니다. 서버가 없으므로 업로드할 곳이 없고, 디스크 캐시도 없고, 텔레메트리도 없습니다.
 
@@ -143,8 +143,9 @@ if ($actual -eq $expected) { "OK" } else { "MISMATCH — 실행하지 마세요"
 3. **필드 평탄화** — 하이퍼링크 unwrap, `<w:fldChar>` / `<w:instrText>` 제거
 4. **redact** — 선택된 모든 문자열을 `[REDACTED]` 로 교체 (모든 scope)
 5. **metadata scrub** — `docProps/*` 의 author, lastModifiedBy, company, title 비움
-6. **round-trip 검증** — 출력을 다시 파싱해서 생존 민감 문자열이 0 인지 확인 (`word/_rels/*.rels` URL Target 도 포함)
-7. **word-count sanity** — 전후 단어 수 비교; 30% 이상 감소 시 경고
+6. **relationship target 정리** — `.rels` 파일의 외부 `http://` / `https://` target을 제거하고, 선택된 민감 문자열이 relationship target에 있으면 함께 치환
+7. **round-trip 검증** — 출력을 다시 파싱해서 생존 민감 문자열이 0 인지 확인 (`word/_rels/*.rels` relationship target 포함)
+8. **word-count sanity** — 전후 단어 수 비교; 30% 이상 감소 시 경고
 
 Apply 후 네 가지 결과 중 하나가 표시됩니다. [§ 8](#8-apply-후-네-가지-결과) 참조.
 
@@ -430,9 +431,9 @@ shasum -a 256 NDA_2026_final.redacted.docx
 
 50 KB 계약서 기준 총 2초 이내. >10초면 DevTools Performance 로 profile → fixture 크기 포함 버그 제보.
 
-### "50 MB 파일 드롭했더니 멈춤"
+### "큰 파일을 드롭했더니 거부됨"
 
-일반 법률 문서는 <5 MB. 이미지가 많은 DOCX 는 OCR 불가로 어차피 효용 없음.
+입력 파일은 **50 MB**를 넘으면 거부되고, 압축 해제된 ZIP 내부 개별 항목도 **20 MB**를 넘으면 거부됩니다. 일반 법률 문서는 <5 MB입니다. 이미지가 많은 DOCX 는 OCR 불가로 어차피 효용이 낮습니다.
 
 ### "모바일 레이아웃이 답답하다"
 
@@ -464,7 +465,7 @@ shasum -a 256 NDA_2026_final.redacted.docx
 - **세션 간 상태 없음**
 - **배치 처리 없음**
 - **정책 파일·팀 공유 없음**
-- **rels Target 재작성 없음** (감지만 함, 사용자가 기타로 처리)
+- **제한적인 rels Target 재작성** (`http://` / `https://` 외부 target은 제거하고, 선택된 민감 문자열이 relationship target에 있으면 치환합니다. 모든 비HTTP/opaque target을 일반적으로 정리하는 도구는 아닙니다.)
 - **이미지 EXIF 스크럽 없음**
 - **revision ID 스크럽 없음**
 - **Hidden text (`<w:vanish>`) 드러내기 없음**

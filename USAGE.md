@@ -108,7 +108,7 @@ The tab title reads `document-redactor · offline DOCX redactor`. The top-right 
 
 ### Step 4.1 — Drop your file
 
-Drag a `.docx` onto the drop zone, or click "choose a file" and pick one. The tool loads the file, unzips it in memory, and walks every text-bearing scope (body, headers, footers, footnotes, endnotes, comments). Typical contracts parse in under a second.
+Drag a `.docx` onto the drop zone, or click "choose a file" and pick one. The tool accepts input files up to **50 MB**, caps any single decompressed ZIP entry at **20 MB**, unzips the file in memory, and walks every text-bearing scope (body, headers, footers, footnotes, endnotes, comments). Typical contracts parse in under a second.
 
 > **Nothing leaves your machine.** The file lives only in a JavaScript variable inside your browser tab. There is no server to upload to, no disk cache, no telemetry.
 
@@ -141,8 +141,9 @@ The tool runs the full pipeline:
 3. **Flatten fields** — unwraps hyperlinks, removes `<w:fldChar>` / `<w:instrText>` (so `HYPERLINK "mailto:..."` instructions can't leak)
 4. **Redact** — replaces every selected string with `[REDACTED]` across all scopes
 5. **Scrub metadata** — clears author, lastModifiedBy, company, title in `docProps/*`
-6. **Round-trip verify** — re-parses the output and confirms zero surviving sensitive strings (including URLs in `word/_rels/*.rels`)
-7. **Word-count sanity** — compares before/after word counts; ≥30% drop triggers a warning
+6. **Clean relationship targets** — strips external `http://` / `https://` targets in `.rels` files and repairs selected literals found in relationship targets
+7. **Round-trip verify** — re-parses the output and confirms zero surviving sensitive strings, including relationship targets in `word/_rels/*.rels`
+8. **Word-count sanity** — compares before/after word counts; ≥30% drop triggers a warning
 
 One of four post-Apply outcomes appears. See [§ 8](#8-the-four-post-apply-outcomes).
 
@@ -459,9 +460,9 @@ Typical timings on a 50 KB contract:
 
 Total under 2 seconds end to end. If it's genuinely slow (>10 seconds), the most likely cause is a very large DOCX with thousands of paragraphs. Open DevTools Performance tab to profile. File a bug with the fixture size.
 
-### "I dropped a 50 MB file and my browser hung"
+### "I dropped a large file and it was rejected"
 
-The tool has no explicit size cap in v1.x, but browsers choke on multi-hundred-MB files. Typical legal documents are <5 MB. For unusually large files (scanned pages converted to DOCX with embedded images), the OCR caveat from [§ 13](#13-what-this-tool-does-not-do) applies — the tool cannot redact text inside images regardless, so there's little benefit to running it on an image-heavy file.
+The tool rejects input files larger than **50 MB** and any single decompressed ZIP entry larger than **20 MB**. Typical legal documents are <5 MB. For unusually large files (scanned pages converted to DOCX with embedded images), the OCR caveat from [§ 13](#13-what-this-tool-does-not-do) applies — the tool cannot redact text inside images regardless, so there's little benefit to running it on an image-heavy file.
 
 ### "The mobile layout looks cramped"
 
@@ -503,7 +504,7 @@ These are v1.1 limitations. Some are planned for future paranoid-tier work; othe
 - **No persistent state between sessions.** Close the tab, reopen, start fresh. (Manual additions persist ONLY within the same session.)
 - **No batch processing.** One file at a time.
 - **No policy files / team sharing.** No import/export of selection sets across users.
-- **No `word/_rels/*.rels` Target rewriting.** Phase 4 verifier DETECTS surviving URLs in rels files and blocks download, but does not actively overwrite them. The user resolves it via the catch-all or by cleaning the source document.
+- **Limited `word/_rels/*.rels` Target rewriting.** The tool strips external `http://` / `https://` relationship targets and repairs selected literals found in relationship targets, then verifies that sensitive strings do not survive. It is not a general-purpose relationship sanitizer for every possible non-HTTP or opaque target.
 - **No image EXIF scrubbing.** Images inside the DOCX keep their original metadata (GPS, camera info).
 - **No revision-ID scrubbing.** `w:rsidR` identifiers stay. Usually harmless, but in theory allow author correlation across documents.
 - **No hidden text (`<w:vanish>`) surfacing.** Hidden text is a separate leak vector; Paranoid-tier work will address it.

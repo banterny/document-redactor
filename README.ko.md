@@ -90,6 +90,13 @@
   </tr>
 </table>
 
+## 현재 안전 제한
+
+- 입력 파일은 **50 MB**까지만 받습니다.
+- 압축을 푼 ZIP 내부 개별 항목은 **20 MB**까지만 읽습니다.
+- DOCX 관계 파일(`*.rels`)도 검증 대상에 포함합니다.
+- 출력 생성 시 외부 `http://` / `https://` relationship target은 제거하고, 선택된 민감 문자열이 relationship target에 있으면 검증 전에 함께 치환합니다.
+
 ## 어떤 문제를 해결하나
 
 계약서, 준비서면, 내부 메모, 법원 문서를 ChatGPT, Claude, Gemini 같은 도구에 넣고 싶어도 회사명, 인명, 전화번호, 주민등록번호, 계좌정보, 사건번호 같은 민감 문자열이 그대로 들어 있는 경우가 많습니다.
@@ -125,7 +132,7 @@ flowchart TD
     E --> F["✂️ <b>적용</b><br/>메타데이터·필드·<br/>하이퍼링크 제거"]
     F --> G{"✅ <b>검증</b><br/>round-trip 스캔<br/>+ rels 체크"}
     G -->|깨끗| H["💾 <b>다운로드</b><br/>.redacted.docx<br/>+ SHA-256 sidecar"]
-    G -->|누출 감지| I["🔴 다운로드 차단<br/>+ 생존 항목으로<br/>이동"]
+    G -->|누출 감지| I["🔴 위험 검토<br/>+ 생존 항목으로<br/>이동"]
 
     classDef default fill:#0f172a,stroke:#1e3a5f,stroke-width:2px,color:#f8fafc;
     classDef action fill:#0f766e,stroke:#14b8a6,color:#ffffff;

@@ -5,10 +5,17 @@
   with per-category manual add for under-cover and uncheck for over-cover.
 -->
 <script lang="ts">
-  import { buildSelectionTargetId } from "../selection-targets.js";
+  import {
+    countSelectionTargets,
+    type SelectionTarget,
+  } from "../selection-targets.js";
   import CategorySection from "./CategorySection.svelte";
   import type { Analysis } from "./engine.ts";
-  import { piiKindLabel } from "./pii-kinds.js";
+  import {
+    IDENTIFIER_SUBCATEGORY_TO_KIND,
+    piiKindLabel,
+    type IdentifierSubcategory,
+  } from "./pii-kinds.js";
   import { appState, type AppPhase } from "./state.svelte.ts";
   import type { ManualCategory } from "./state.svelte.ts";
 
@@ -133,16 +140,10 @@
   let sections = $derived.by(() =>
     phase.kind === "postParse" ? buildSections(phase.analysis) : EMPTY_SECTIONS,
   );
-  let totalCount = $derived(
-    sections.literals.length +
-      sections.defined.length +
-      sections.pii.length +
-      sections.financial.length +
-      sections.temporal.length +
-      sections.entities.length +
-      sections.legal.length +
-      sections.heuristics.length +
-      sections.other.length,
+  let totalCount = $derived.by(() =>
+    phase.kind === "postParse"
+      ? countSelectionTargets(phase.analysis.selectionTargets)
+      : 0,
   );
   let canApply = $derived(phase.kind === "postParse" && selectedCount > 0);
 
@@ -155,12 +156,65 @@
     return subcategory;
   }
 
+  function unique(values: readonly string[]): string[] {
+    return [...new Set(values.filter((value) => value.length > 0))];
+  }
+
+  function sourceKindLabel(kind: SelectionTarget["sourceKinds"][number]): string {
+    switch (kind) {
+      case "literal":
+        return "literal";
+      case "pii":
+        return "identifier";
+      case "nonPii":
+        return "detected";
+      case "manual":
+        return "manual";
+    }
+  }
+
+  function ruleLabel(ruleId: string): string {
+    if (ruleId.startsWith("identifiers.")) {
+      const subcategory = ruleSubcategory(ruleId) as IdentifierSubcategory;
+      const kind = IDENTIFIER_SUBCATEGORY_TO_KIND[subcategory];
+      if (kind !== undefined) return piiKindLabel(kind);
+    }
+    return ruleSubcategory(ruleId);
+  }
+
+  function targetConfidence(target: SelectionTarget): number | undefined {
+    const values = target.occurrences
+      .map((occurrence) => occurrence.confidence)
+      .filter((value): value is number => value !== undefined);
+    if (values.length === 0) return undefined;
+    return Math.min(...values);
+  }
+
+  function targetMeta(target: SelectionTarget): string {
+    const ruleLabels = unique(
+      target.occurrences
+        .map((occurrence) => occurrence.ruleId)
+        .filter((ruleId): ruleId is string => ruleId !== null)
+        .map(ruleLabel),
+    );
+    const sourceLabels = unique(target.sourceKinds.map(sourceKindLabel));
+    const scopes = formatScopes(target.scopes);
+    const count = target.count > 1 ? `${target.count} matches` : "";
+    const primary = ruleLabels.length > 0 ? ruleLabels.join(", ") : sourceLabels.join(", ");
+    return [primary, scopes, count].filter((part) => part.length > 0).join(" · ");
+  }
+
   function buildSections(analysis: Analysis): PanelSections {
-    const seen = new Set<string>();
-    const push = (out: CategoryCandidate[], candidate: CategoryCandidate): void => {
-      if (seen.has(candidate.text)) return;
-      seen.add(candidate.text);
-      out.push(candidate);
+    const sections: PanelSections = {
+      literals: [],
+      defined: [],
+      pii: [],
+      financial: [],
+      temporal: [],
+      entities: [],
+      legal: [],
+      heuristics: [],
+      other: [],
     };
     const manualCategoryForText = (text: string): ManualCategory | undefined => {
       for (const [category, bucket] of appState.manualAdditions.entries()) {
@@ -168,98 +222,35 @@
       }
       return undefined;
     };
-    const targetHasManual = (selectionTargetId: string): boolean =>
-      analysis.selectionTargetById
-        .get(selectionTargetId)
-        ?.sourceKinds.includes("manual") ?? false;
-    const appendManual = (out: CategoryCandidate[], category: ManualCategory): void => {
-      const bucket = appState.manualAdditions.get(category);
-      if (bucket === undefined) return;
-      for (const text of bucket) {
-        const selectionTargetId =
-          analysis.selectionTargetById.get(buildSelectionTargetId("auto", text))
-            ?.id ?? buildSelectionTargetId("manual", text);
-        push(out, {
-          selectionTargetId,
-          text,
-          meta: "manual",
-          isManual: true,
-          manualCategory: category,
-        });
-      }
-    };
-    const collectNonPii = (
-      categories: readonly Analysis["nonPiiCandidates"][number]["category"][],
-      manualCategory?: ManualCategory,
-    ): CategoryCandidate[] => {
-      const out: CategoryCandidate[] = [];
-      const allowed = new Set(categories);
-      for (const candidate of analysis.nonPiiCandidates) {
-        if (!allowed.has(candidate.category)) continue;
-        push(out, {
-          selectionTargetId: candidate.selectionTargetId,
-          text: candidate.text,
-          meta: `${ruleSubcategory(candidate.ruleId)} · ${formatScopes(candidate.scopes)}`,
-          confidence: candidate.confidence,
-          isManual: targetHasManual(candidate.selectionTargetId),
-          manualCategory: manualCategoryForText(candidate.text),
-        });
-      }
-      if (manualCategory !== undefined) appendManual(out, manualCategory);
-      return out;
-    };
 
-    const literals: CategoryCandidate[] = [];
-    for (const candidate of analysis.literalCandidates) {
-      push(literals, {
-        selectionTargetId: candidate.selectionTargetId,
-        text: candidate.text,
-        meta: `literal · ${candidate.seed}`,
-        isManual: targetHasManual(candidate.selectionTargetId),
-        manualCategory: manualCategoryForText(candidate.text),
-      });
-    }
-    appendManual(literals, "literals");
-
-    const defined: CategoryCandidate[] = [];
-    for (const candidate of analysis.definedCandidates) {
-      push(defined, {
-        selectionTargetId: candidate.selectionTargetId,
-        text: candidate.text,
-        meta: `from definition · ${candidate.seed}`,
-        isManual: targetHasManual(candidate.selectionTargetId),
-        manualCategory: manualCategoryForText(candidate.text),
-      });
+    for (const target of analysis.selectionTargets) {
+      sections[target.reviewSection].push(
+        toCategoryCandidate(target, manualCategoryForText),
+      );
     }
 
-    const pii: CategoryCandidate[] = [];
-    for (const candidate of analysis.piiCandidates) {
-      push(pii, {
-        selectionTargetId: candidate.selectionTargetId,
-        text: candidate.text,
-        meta: `${piiKindLabel(candidate.kind)} · ${formatScopes(candidate.scopes)}`,
-        isManual: targetHasManual(candidate.selectionTargetId),
-        manualCategory: manualCategoryForText(candidate.text),
-      });
-    }
+    return sections;
+  }
 
-    // "Other (catch-all)" bucket. No engine-detected rows; only
-    // user-typed entries via the section's AddCandidateInput. These still
-    // count toward the redaction target set.
-    const other: CategoryCandidate[] = [];
-    appendManual(other, "other");
-
-    return {
-      literals,
-      defined,
-      pii,
-      financial: collectNonPii(["financial"], "financial"),
-      temporal: collectNonPii(["temporal"], "temporal"),
-      entities: collectNonPii(["entities", "structural"], "entities"),
-      legal: collectNonPii(["legal"], "legal"),
-      heuristics: collectNonPii(["heuristics"]),
-      other,
+  function toCategoryCandidate(
+    target: SelectionTarget,
+    manualCategoryForText: (text: string) => ManualCategory | undefined,
+  ): CategoryCandidate {
+    const candidate: CategoryCandidate = {
+      selectionTargetId: target.id,
+      text: target.displayText,
+      meta: targetMeta(target),
+      isManual: target.sourceKinds.includes("manual"),
     };
+    const confidence = targetConfidence(target);
+    const manualCategory = manualCategoryForText(target.displayText);
+    if (confidence !== undefined) {
+      candidate.confidence = confidence;
+    }
+    if (manualCategory !== undefined) {
+      candidate.manualCategory = manualCategory;
+    }
+    return candidate;
   }
 </script>
 

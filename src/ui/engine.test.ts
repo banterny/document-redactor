@@ -198,6 +198,7 @@ describe("analyzeZip", () => {
         "entityGroups",
         "fileStats",
         "literalCandidates",
+        "manualMatchCorpus",
         "nonPiiCandidates",
         "piiCandidates",
         "selectionTargetById",

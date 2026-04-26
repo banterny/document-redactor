@@ -16,6 +16,8 @@
 <script lang="ts">
   import { loadDocxZip } from "../docx/load.js";
   import { renderDocumentBody, type RenderedDocument } from "../docx/render-body.js";
+  import { countSelectionTargets } from "../selection-targets.js";
+  import { redactedFilename } from "./download-policy.js";
   import RenderedBody from "./RenderedBody.svelte";
   import { appState, type AppPhase } from "./state.svelte.ts";
 
@@ -36,13 +38,6 @@
   function formatHash(hash: string): string {
     if (hash.length < 16) return hash;
     return `${hash.slice(0, 4)} ${hash.slice(4, 8)} · · · ${hash.slice(-8, -4)} ${hash.slice(-4)}`;
-  }
-
-  /** Mirror the D8.3 output filename rule: {stem}.redacted.{ext}. */
-  function redactedFilename(original: string): string {
-    const dot = original.lastIndexOf(".");
-    if (dot === -1) return `${original}.redacted`;
-    return `${original.slice(0, dot)}.redacted${original.slice(dot)}`;
   }
 
   function onDrop(e: DragEvent): void {
@@ -86,7 +81,9 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = redactedFilename(phase.fileName);
+    a.download = redactedFilename(phase.fileName, {
+      unverified: phase.kind === "downloadRisk",
+    });
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -188,10 +185,7 @@
           <span class="pill">{formatBytes(phase.analysis.fileStats.sizeBytes)}</span>
           <span class="pill">{phase.analysis.fileStats.scopeCount} scopes walked</span>
           <span class="pill">
-            {phase.analysis.entityGroups.reduce(
-              (sum, g) => sum + g.literals.length + g.defined.length,
-              0,
-            ) + phase.analysis.piiCandidates.length} candidates found
+            {countSelectionTargets(phase.analysis.selectionTargets)} candidates found
           </span>
         </div>
       </div>
@@ -444,7 +438,8 @@
         </p>
         <div class="risk-toast">
           Verification found surviving strings. Review them, or acknowledge the
-          residual risk to download anyway.
+          residual risk to download
+          <code>{redactedFilename(phase.fileName, { unverified: true })}</code>.
         </div>
         <ul class="survival-list">
           {#each phase.report.verify.survived as s (s.targetId + s.scope.path + s.surface)}

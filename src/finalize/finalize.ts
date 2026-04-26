@@ -23,13 +23,14 @@
  * plus `outputBytes` the caller can wrap in a Blob and hand to
  * `URL.createObjectURL`.
  *
- * Ship gate: `isShippable(report)` returns true iff BOTH `verify.isClean`
- * AND `wordCount.sane` are true. The UI should disable the download
- * button whenever this returns false — zero-miss is a two-check gate.
+ * Strict clean gate: `isStrictlyCleanReport(report)` returns true iff BOTH
+ * `verify.isClean` AND `wordCount.sane` are true. UI download policy may
+ * still allow warning or acknowledgement-gated risk outputs, but those are
+ * not strictly clean reports.
  *
  * Public API:
  *   - `finalizeRedaction(zip, options)` — async, returns `FinalizedReport`.
- *   - `isShippable(report)` — sync predicate, the ship gate.
+ *   - `isStrictlyCleanReport(report)` — sync predicate for the strict clean gate.
  *   - `FinalizedReport`, `FinalizeOptions`.
  */
 
@@ -150,14 +151,11 @@ export async function finalizeRedaction(
 }
 
 /**
- * Ship gate: true iff the finalized report passes BOTH the round-trip
+ * Strict clean gate: true iff the finalized report passes BOTH the round-trip
  * verify (no sensitive strings survived) AND the word-count sanity
  * check (didn't remove more than `thresholdPct` of the document).
- *
- * The UI disables the download button whenever this returns false and
- * surfaces whichever check failed to the user.
  */
-export function isShippable(report: FinalizedReport): boolean {
+export function isStrictlyCleanReport(report: FinalizedReport): boolean {
   return report.verify.isClean && report.wordCount.sane;
 }
 
