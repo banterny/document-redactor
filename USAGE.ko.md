@@ -29,7 +29,7 @@
 
 [최신 릴리즈](https://github.com/kipeum86/document-redactor/releases/latest) 페이지에서 **두 파일을 모두** 받으세요:
 
-- **`document-redactor.html`** — 도구 본체 (~247 KB, HTML 한 파일)
+- **`document-redactor.html`** — 도구 본체 (~281 KB / 288,133 bytes, HTML 한 파일)
 - **`document-redactor.html.sha256`** — 무결성 sidecar (89 bytes)
 
 카카오톡, 이메일, USB 등으로 다른 사람에게 받은 경우에도 괜찮습니다. 다음 섹션의 검증이 바로 그런 경우를 위해 있습니다. 보낸 사람을 신뢰하는 대신 **해시를 검증** 하면 됩니다.

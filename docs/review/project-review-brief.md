@@ -504,7 +504,7 @@ At the time this brief was written:
 
 - package version: `1.1.1`
 - build artifact: single-file `document-redactor.html`
-- current checked build size: `256 KB`
+- current checked build size: `281 KB` (`288,133 bytes`)
 - test suite scale: `1,800+` tests
 
 This brief is intentionally architecture-focused rather than commit-specific.

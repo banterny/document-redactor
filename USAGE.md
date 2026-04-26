@@ -27,7 +27,7 @@ A step-by-step walkthrough for running `document-redactor` on a real file. If yo
 
 Go to the [latest release](https://github.com/kipeum86/document-redactor/releases/latest) and download **both** files:
 
-- **`document-redactor.html`** — the tool itself (~247 KB, single HTML file)
+- **`document-redactor.html`** — the tool itself (~281 KB / 288,133 bytes, single HTML file)
 - **`document-redactor.html.sha256`** — the integrity sidecar (89 bytes)
 
 If you received the files via Kakao, email, or USB from someone else, that's fine — the verification step in the next section is exactly designed for this case. You don't need to trust the sender; you need to verify the hash.
