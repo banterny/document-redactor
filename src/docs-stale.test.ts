@@ -21,16 +21,16 @@ describe("documentation stale guards", () => {
       "docs/review/project-review-brief.md",
     ]) {
       const text = readDoc(doc);
-      expect(text, doc).toContain("281 KB");
+      expect(text, doc).toContain("264 KB");
       expect(text, doc).not.toContain("256 KB");
       expect(text, doc).not.toContain("247 KB");
     }
 
     for (const doc of ["README.md", "README.ko.md"]) {
       const text = readDoc(doc);
-      expect(text, doc).toContain("288,133 bytes");
+      expect(text, doc).toContain("270,515 bytes");
       expect(text, doc).toContain(
-        "adba9c92a951f7044a9aa1e946c7defb2624cb0114b674bf89321ebc018a7b71",
+        "6df18037489d130b56f81b82bfe51bbc9ee1579478af93cb605511035d693077",
       );
       expect(text, doc).not.toContain(
         "9637053fa726c6ad57f5e2f254b5bd6526e6979a1a4c2c07e62613593b04a02a",

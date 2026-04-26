@@ -502,9 +502,9 @@ Do not include praise or generic observations. If something is a tradeoff rather
 
 At the time this brief was written:
 
-- package version: `1.1.1`
+- package version: `1.2.0`
 - build artifact: single-file `document-redactor.html`
-- current checked build size: `281 KB` (`288,133 bytes`)
+- current checked build size: `264 KB` (`270,515 bytes`)
 - test suite scale: `1,800+` tests
 
 This brief is intentionally architecture-focused rather than commit-specific.
