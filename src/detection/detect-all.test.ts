@@ -237,6 +237,38 @@ describe("detectAll", () => {
       },
     ]);
   });
+
+  it.each([
+    "제1조",
+    "제1조 제2항",
+    "제3호",
+    "제15조의2",
+    "민법 제750조",
+    "개인정보 보호법 제17조",
+    "법률 제1234호",
+    "Section 10.1",
+    "Section 10.1(a)",
+    "17 U.S.C. § 101",
+    "42 U.S.C. § 1983",
+    "Article V",
+    "Clause 3.2",
+    "Schedule A",
+    "Exhibit B",
+    "별표 1",
+    "부속서 2",
+    "서울중앙지방법원",
+    "대법원",
+    "헌법재판소",
+    "123 F.3d 456",
+    "456 U.S. 789",
+    "789 S. Ct. 123",
+    "Court:Seoul Central District Court",
+    "법원:서울중앙지방법원",
+  ])("does not emit contract structure or public law references: %s", (text) => {
+    const result = detectAll(text, { language: "mixed" });
+    expect(result.candidates).toEqual([]);
+    expect(result.structuralDefinitions).toEqual([]);
+  });
 });
 
 describe("detectAllInZip", () => {

@@ -27,7 +27,7 @@ A step-by-step walkthrough for running `document-redactor` on a real file. If yo
 
 Go to the [latest release](https://github.com/kipeum86/document-redactor/releases/latest) and download **both** files:
 
-- **`document-redactor.html`** — the tool itself (~281 KB / 288,133 bytes, single HTML file)
+- **`document-redactor.html`** — the tool itself (~262 KB / 268,571 bytes, single HTML file)
 - **`document-redactor.html.sha256`** — the integrity sidecar (89 bytes)
 
 If you received the files via Kakao, email, or USB from someone else, that's fine — the verification step in the next section is exactly designed for this case. You don't need to trust the sender; you need to verify the hash.
@@ -197,9 +197,11 @@ Korean dates (`2024년 3월 15일`, `2024.3.15`), ISO 8601 (`2024-03-15`, with o
 
 Korean corporations (`주식회사 ABC`, `(주)ABC`, `㈜ABC`), other legal forms (`유한회사`, `사단법인`), executive titles with names (`대표이사 김철수`), honorifics (`김철수 님`), English corporations (`ABC Corp.`, `XYZ Inc.`), international legal forms (`ABC GmbH`, `XYZ S.A.`, `DEF Pty Ltd`), English titles (`Mr. Smith`, `Dr. Jones`, `CEO John Smith`), **label-driven address capture** (`주소: 서울특별시 강남구 논현로 568` / `Address: 12345 Main St, ...`), and **label-driven phone capture** (`전화: 02-3446-3727` / `Phone Number: +82-2-3446-3727`). **Checked by default.**
 
-### 7. 법원 / 사건 (Legal)
+### 7. 사건번호 / 도켓 (Case / docket)
 
-Korean case numbers (`2024가합12345`), court names (`서울중앙지방법원`, `대법원`), statute references (`민법 제750조`, `제15조 제2항`), English case citations (`123 F.3d 456`), statute references (`17 U.S.C. § 101`), and legal context scanners. **Checked by default.**
+Case and docket identifiers such as Korean case numbers (`2024가합12345`), `Case No.: 24-CV-1234`, `Docket No.: 1:24-cv-00001`, and Korean `사건번호:` labels. **Unchecked by default** — opt in when the reference itself should be hidden.
+
+Contract article/section references (`Section 10.1`, `제15조 제2항`), court names (`서울중앙지방법원`, `대법원`), precedent citations (`123 F.3d 456`), and public statute citations (`민법 제750조`, `17 U.S.C. § 101`) are preserved by default because they usually carry structure, venue context, or public legal authority, not private identity.
 
 ### 8. 추측 (Low-confidence heuristics)
 
@@ -361,7 +363,7 @@ Common causes:
 
 The engine is text-based and works on any DOCX — it doesn't care whether the file is a contract, an opinion, a brief, a memo, or internal notes. For non-contract use:
 
-- **The 8 category rules still fire automatically.** Addresses, phones, emails, IDs, amounts, dates, court names, statute references — all picked up regardless of document type.
+- **The 8 category sections still populate from automatic detection.** Addresses, phones, emails, IDs, amounts, and dates are checked by default. Case and docket identifiers may appear for review but remain unchecked by default; contract sections, court names, precedent citations, and public statute citations are preserved unless you add them manually.
 - **The 정의된 대리어 section will usually be empty** on non-contract docs. The D9 parser looks for `"X" means Y` / `("Y"이라 함은)` patterns, which are almost exclusive to contracts.
 - **Use the 기타 section heavily** for domain-specific terms. A judgment might want case numbers, judge names, or party names; a patent spec might want inventor names or assignee; a memo might want internal codewords.
 - **Redacted output opens in Word the same way** regardless of source type.

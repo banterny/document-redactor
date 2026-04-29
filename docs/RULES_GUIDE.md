@@ -173,17 +173,19 @@ Document-specific entity discovery — the "everything else" category for fuzzy 
 
 ### 2.7 `legal`
 
-Legal document-specific patterns that don't match outside legal contexts.
+Litigation-specific patterns that can identify a case or docket.
 
-**Boundary:** if it only makes sense inside a legal document (case numbers, statute references, court names, procedural markers), it belongs here.
+**Boundary:** if the string can directly connect the document to a specific case or docket (case numbers, docket labels, case-number labels), it belongs here.
 
 **Examples:**
 - Korean court case numbers: `2024가합12345`, `2024다67890`, `2024노1234`, `2024도5678`
-- Korean court names: `서울중앙지방법원`, `대법원`, `서울고등법원`
-- Statute references: `제15조 제2항`, `법률 제1234호`, `민법 제750조`
-- English case citations: `123 F.3d 456 (2d Cir. 2020)` (optional, low ROI for Korean lawyer audience)
+- Case/docket labels: `Case No.: 24-CV-1234`, `Docket No.: 1:24-cv-00001`
 
 **What doesn't belong:**
+- Contract article/section references: `Section 10.1`, `제15조 제2항`
+- Public statute citations: `민법 제750조`, `17 U.S.C. § 101`
+- Court names: `서울중앙지방법원`, `대법원`, `Seoul Central District Court`
+- Precedent citations: `123 F.3d 456`, `456 U.S. 789`
 - Corporate names of parties → `entities`
 - Dates of proceedings → `temporal`
 
@@ -760,7 +762,7 @@ Input text: `2024가합12345`
 
 Candidates before dedup:
 - `"2024"` from `temporal.date-ko` (matches the year prefix alone? — probably not, because the pattern should require `년` or `-`)
-- `"2024가합12345"` from `legal.case-number-ko`
+- `"2024가합12345"` from `legal.ko-case-number`
 
 If both fire, keep both — they are different texts, no conflict. The redactor replaces longest first, so `2024가합12345` is handled before the standalone `2024` would need to be touched.
 
@@ -1020,9 +1022,7 @@ Target: 5 parsers. Integrated tests against `tests/fixtures/bilingual_nda_worst_
 | `financial.financial-context` | heuristic (yes, it's a heuristic despite the name — context-aware) | 로열티/수수료/요율 keyword proximity |
 | `temporal.temporal-context` | heuristic | 기간/유효기간/효력 proximity |
 | `entities.identity-context` | heuristic | 원고/피고/claimant proximity |
-| `legal.case-number-ko` | legal | `2024가합12345` et al |
-| `legal.court-name-ko` | legal | 서울중앙지방법원, 대법원 |
-| `legal.statute-reference` | legal | 제N조 제M항, 법률 제N호 |
+| `legal.ko-case-number` | legal | `2024가합12345` et al |
 
 ### 13.5 Phase 4 targets — heuristics
 

@@ -1,7 +1,7 @@
 <!--
   Right panel — Phase 2 category review UI.
   Session-log reference ("Finding 1.3 — user insight"):
-  parties / identifiers / amounts / dates / courts / heuristics,
+  parties / identifiers / amounts / dates / case refs / heuristics,
   with per-category manual add for under-cover and uncheck for over-cover.
 -->
 <script lang="ts">
@@ -112,8 +112,8 @@
     },
     {
       key: "legal",
-      label: "Courts / matters",
-      subHint: "Case numbers, court names, statutes, precedents",
+      label: "Case / docket refs",
+      subHint: "Case numbers and docket labels",
       category: "legal",
       canManualAdd: true,
     },

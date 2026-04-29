@@ -166,6 +166,10 @@ const NON_PII_SECTION: Readonly<Record<NonPiiCategory, SelectionReviewSection>> 
   heuristics: "heuristics",
 };
 
+function defaultSelectedNonPii(candidate: NonPiiCandidate): boolean {
+  return candidate.category !== "legal" && candidate.confidence === 1.0;
+}
+
 /** Extra knobs for `applyRedaction`. Mutation still fresh-loads original bytes. */
 export interface ApplyOptions {
   readonly placeholder?: string;
@@ -251,7 +255,7 @@ function analyzeSnapshot(
         sourceKind: "nonPii",
         ruleId: candidate.ruleId,
         reviewSection: NON_PII_SECTION[candidate.category],
-        defaultSelected: candidate.confidence === 1.0,
+        defaultSelected: defaultSelectedNonPii(candidate),
         confidence: candidate.confidence,
       }),
     ),

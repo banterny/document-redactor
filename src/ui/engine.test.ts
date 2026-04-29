@@ -151,7 +151,7 @@ function withSelectionTargets(
                 : candidate.category === "heuristics"
                   ? "heuristics"
                   : "entities",
-        defaultSelected: candidate.confidence === 1.0,
+        defaultSelected: candidate.category !== "legal" && candidate.confidence === 1.0,
         ruleId: candidate.ruleId,
       }),
     ),
@@ -430,7 +430,7 @@ describe("defaultSelections — D9 policy", () => {
     expect(selections.has(buildSelectionTargetId("auto", "user@example.com"))).toBe(true);
   });
 
-  it("includes non-heuristic nonPii candidates (confidence === 1.0) across all categories", () => {
+  it("includes high-confidence nonPii candidates by default except litigation refs", () => {
     const analysis = withSelectionTargets({
       entityGroups: [],
       piiCandidates: [],
@@ -463,9 +463,9 @@ describe("defaultSelections — D9 policy", () => {
           scopes: [],
         },
         {
-          text: "대법원",
-          selectionTargetId: buildSelectionTargetId("auto", "대법원"),
-          ruleId: "legal.ko-court-name",
+          text: "2024가합12345",
+          selectionTargetId: buildSelectionTargetId("auto", "2024가합12345"),
+          ruleId: "legal.ko-case-number",
           category: "legal" as const,
           confidence: 1.0,
           count: 1,
@@ -484,7 +484,12 @@ describe("defaultSelections — D9 policy", () => {
       fileStats: { sizeBytes: 0, scopeCount: 0 },
     });
     const selections = defaultSelections(analysis);
-    expect(selections.size).toBe(5);
+    expect(selections.has(buildSelectionTargetId("auto", "50,000원"))).toBe(true);
+    expect(selections.has(buildSelectionTargetId("auto", "2024년 3월 15일"))).toBe(true);
+    expect(selections.has(buildSelectionTargetId("auto", "ABC 주식회사"))).toBe(true);
+    expect(selections.has(buildSelectionTargetId("auto", "NDA"))).toBe(true);
+    expect(selections.has(buildSelectionTargetId("auto", "2024가합12345"))).toBe(false);
+    expect(selections.size).toBe(4);
   });
 
   it("handles empty analysis by returning empty set", () => {

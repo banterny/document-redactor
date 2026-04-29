@@ -6,6 +6,10 @@ import { describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
+const CURRENT_BUILD_SIZE = "262 KB";
+const CURRENT_BUILD_BYTES = "268,571 bytes";
+const CURRENT_BUILD_SHA256 =
+  "363d7c93008038a6e56137ab0a43251771f8911c7d7aad6e21cd6771a6a8003a";
 
 function readDoc(relativePath: string): string {
   return fs.readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
@@ -21,19 +25,21 @@ describe("documentation stale guards", () => {
       "docs/review/project-review-brief.md",
     ]) {
       const text = readDoc(doc);
-      expect(text, doc).toContain("281 KB");
+      expect(text, doc).toContain(CURRENT_BUILD_SIZE);
+      expect(text, doc).toContain(CURRENT_BUILD_BYTES);
+      expect(text, doc).not.toContain("281 KB");
       expect(text, doc).not.toContain("256 KB");
       expect(text, doc).not.toContain("247 KB");
     }
 
     for (const doc of ["README.md", "README.ko.md"]) {
       const text = readDoc(doc);
-      expect(text, doc).toContain("288,133 bytes");
-      expect(text, doc).toContain(
-        "e0ac7e22d3f2332f521d4b2b41e5b036c9ef69460a6ac45c6aecbe70c18dce16",
-      );
+      expect(text, doc).toContain(CURRENT_BUILD_SHA256);
       expect(text, doc).not.toContain(
         "9637053fa726c6ad57f5e2f254b5bd6526e6979a1a4c2c07e62613593b04a02a",
+      );
+      expect(text, doc).not.toContain(
+        "e0ac7e22d3f2332f521d4b2b41e5b036c9ef69460a6ac45c6aecbe70c18dce16",
       );
     }
   });
@@ -160,5 +166,49 @@ describe("documentation stale guards", () => {
 
     expect(packageJson).toContain("test:redos:smoke");
     expect(ci).toContain("bun run test:redos:smoke");
+  });
+
+  it("keeps public docs aligned with case/docket-reference defaults", () => {
+    for (const doc of [
+      "README.md",
+      "README.ko.md",
+      "USAGE.md",
+      "USAGE.ko.md",
+      "docs/RULES_GUIDE.md",
+    ]) {
+      const text = readDoc(doc);
+
+      expect(text, doc).not.toMatch(/legal references/i);
+      expect(text, doc).not.toMatch(/statute references?\s+.*checked by default/i);
+      expect(text, doc).not.toMatch(/court names,\s*statute references/i);
+      expect(text, doc).not.toMatch(/statutes?\s*\/\s*citations\s*\(checked\)/i);
+      expect(text, doc).not.toMatch(/court references may appear/i);
+      expect(text, doc).not.toMatch(/court names.*may appear for review/i);
+      expect(text, doc).not.toMatch(/precedents?,?\s+and public statute citations.*appear/i);
+      expect(text, doc).not.toMatch(/법령.*기본 체크/);
+      expect(text, doc).not.toMatch(/법원,\s*법령/);
+      expect(text, doc).not.toMatch(/법원명 같은 소송 식별자/);
+    }
+
+    const usage = readDoc("USAGE.md");
+    const usageKo = readDoc("USAGE.ko.md");
+    const rulesGuide = readDoc("docs/RULES_GUIDE.md");
+
+    expect(usage).toContain("Contract article/section references");
+    expect(usage).toContain("court names");
+    expect(usage).toContain("precedent citations");
+    expect(usage).toContain("public statute citations");
+    expect(usage).toContain("Unchecked by default");
+    expect(usageKo).toContain("계약 조항 참조");
+    expect(usageKo).toContain("법원명");
+    expect(usageKo).toContain("판례 인용");
+    expect(usageKo).toContain("공개 법령 인용");
+    expect(usageKo).toContain("기본 언체크");
+    expect(rulesGuide).toContain("Contract article/section references");
+    expect(rulesGuide).toContain("Court names");
+    expect(rulesGuide).toContain("Precedent citations");
+    expect(rulesGuide).toContain("Public statute citations");
+    expect(rulesGuide).not.toContain("legal.statute-reference");
+    expect(rulesGuide).not.toContain("legal.ko-court-name");
   });
 });

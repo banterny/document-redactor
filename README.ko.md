@@ -13,7 +13,7 @@
         <img alt="document-redactor.html 다운로드" src="https://img.shields.io/badge/document--redactor.html-%EC%B5%9C%EC%8B%A0%20%EB%B0%9B%EA%B8%B0-0f766e?style=for-the-badge&logo=html5&logoColor=white" />
       </a>
       <br />
-      <sub>HTML 한 파일 · ~281 KB · 더블클릭으로 실행</sub>
+      <sub>HTML 한 파일 · ~262 KB · 더블클릭으로 실행</sub>
     </td>
     <td align="center" valign="middle">
       <a href="https://github.com/kipeum86/document-redactor/releases/latest/download/document-redactor.html.sha256">
@@ -53,7 +53,7 @@
   <img alt="CI" src="https://img.shields.io/github/actions/workflow/status/kipeum86/document-redactor/ci.yml?branch=main&label=CI&style=flat-square" />
   <img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache%202.0-0f172a?style=flat-square" />
   <img alt="single HTML distribution" src="https://img.shields.io/badge/distribution-single%20HTML-0f172a?style=flat-square" />
-  <img alt="281 KB artifact" src="https://img.shields.io/badge/current%20build-281%20KB-166534?style=flat-square" />
+  <img alt="262 KB artifact" src="https://img.shields.io/badge/current%20build-262%20KB-166534?style=flat-square" />
   <img alt="zero network requests" src="https://img.shields.io/badge/network-0%20requests-166534?style=flat-square" />
   <img alt="rule-based engine" src="https://img.shields.io/badge/detection-rule--based-1d4ed8?style=flat-square" />
   <img alt="AI none" src="https://img.shields.io/badge/AI-none-7f1d1d?style=flat-square" />
@@ -155,8 +155,8 @@ flowchart TD
     </td>
     <td width="20%" valign="top">
       <strong>현재 확인된 크기</strong><br />
-      281 KB<br />
-      <small>288,133 bytes</small>
+      262 KB<br />
+      <small>268,571 bytes</small>
     </td>
     <td width="20%" valign="top">
       <strong>무결성 sidecar</strong><br />
@@ -168,14 +168,14 @@ flowchart TD
     </td>
     <td width="20%" valign="top">
       <strong>자동화 테스트</strong><br />
-      1,800+ tests
+      1,700+ tests
     </td>
   </tr>
 </table>
 
-2026년 4월 26일 기준으로 확인한 현재 빌드:
+2026년 4월 30일 기준으로 확인한 현재 빌드:
 
-- `document-redactor.html` SHA-256: `e0ac7e22d3f2332f521d4b2b41e5b036c9ef69460a6ac45c6aecbe70c18dce16`
+- `document-redactor.html` SHA-256: `363d7c93008038a6e56137ab0a43251771f8911c7d7aad6e21cd6771a6a8003a`
 - `shasum -a 256 -c document-redactor.html.sha256` 로 로컬 검증 완료
 
 ## 현재 릴리즈가 실제로 하는 일
@@ -188,7 +188,7 @@ flowchart TD
     </td>
     <td width="33%" valign="top">
       <strong>구조화된 검토 UX</strong><br />
-      당사자, 대리어, 식별자, 금액, 날짜, 조직/인물, 법률 참조, 휴리스틱, catch-all까지 섹션별로 검토할 수 있습니다.
+      당사자, 대리어, 식별자, 금액, 날짜, 조직/인물, 사건번호/도켓 참조, 휴리스틱, catch-all까지 섹션별로 검토할 수 있습니다.
     </td>
     <td width="33%" valign="top">
       <strong>검증 기반 export</strong><br />
@@ -345,7 +345,7 @@ open dist/document-redactor.html
 참고:
 
 - 브라우저 QA는 dev server가 아니라 빌드된 `dist/document-redactor.html` 기준으로 보는 게 맞습니다.
-- 저장소에는 detection, DOCX rewrite, verification, UI state, ship gate를 포괄하는 1,800+개의 자동화 테스트가 있습니다.
+- 저장소에는 detection, DOCX rewrite, verification, UI state, ship gate를 포괄하는 1,700+개의 자동화 테스트가 있습니다.
 - `dist/` 는 git에 올리지 않으므로, 릴리즈는 CI나 검증된 로컬 빌드에서 HTML과 `.sha256` 을 게시해야 합니다.
 
 ## 라이선스
