@@ -1,35 +1,11 @@
 /**
- * Cross-run redactor.
+ * Cross-run redactor for WordprocessingML text runs.
  *
- * The single most critical Lane B module: replaces sensitive substrings in
- * Word document XML WITHOUT being fooled by Word's run-splitting behaviour.
- *
- * The bug this prevents (documented as a CAVEAT in spike/jszip-spike.ts):
- * Word stores formatted text in `<w:r>` (run) elements, and any formatting
- * boundary — bold, italic, underline, hyperlink, spell-check marker, style
- * change — produces a new run. A logical phrase like "ABC Corporation" can
- * easily live as
- *     <w:r><w:t>ABC Corpo</w:t></w:r><w:r><w:t>ration</w:t></w:r>
- * inside the XML. A naive `xml.replace("ABC Corporation", "[REDACTED]")`
- * would never match this. The redaction would silently fail and the lawyer
- * would download a "redacted" file with their client's name still visible.
- *
- * The fix: use the text run coalescer (coalesce.ts) to build a logical
- * paragraph view, find matches there, then surgically rewrite each match's
- * runs in the original XML. Runs not touched by any match are byte-for-byte
- * preserved (including their `<w:rPr>` formatting blocks).
- *
- * Public API:
- *   - findRedactionMatches(text, targets) — pure function, returns
- *     non-overlapping matches in a logical text. Longest target wins at
- *     each position.
- *   - redactParagraph(paragraphXml, targets, placeholder?) — rewrite one
- *     `<w:p>...</w:p>` with all matches replaced.
- *   - redactScopeXml(scopeXml, targets, placeholder?) — walk every `<w:p>`
- *     in a scope (body, header, footer, footnote, etc.) and apply
- *     redactParagraph to each.
- *   - DEFAULT_PLACEHOLDER — the literal `[REDACTED]` string mandated by
- *     D8.4 for the production output.
+ * Contract:
+ * - match against coalesced logical paragraph text, not raw XML strings;
+ * - rewrite only the runs touched by a match;
+ * - preserve untouched runs and formatting byte-for-byte;
+ * - prefer the longest overlapping target.
  */
 
 import { coalesceParagraphRuns, type RunSpan } from "./coalesce.js";

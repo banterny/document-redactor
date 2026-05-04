@@ -35,6 +35,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: ReDoS smoke
+        run: bun run test:redos:smoke
+
       - name: Test
         run: bun run test
 

@@ -3,12 +3,17 @@ import { describe, expect, it } from "vitest";
 import { ROLE_BLACKLIST_EN } from "./role-blacklist-en.js";
 
 describe("ROLE_BLACKLIST_EN", () => {
-  it("exports exactly 50 entries", () => {
-    expect(ROLE_BLACKLIST_EN.size).toBe(50);
+  it("exports exactly 52 entries", () => {
+    expect(ROLE_BLACKLIST_EN.size).toBe(52);
   });
 
   it("contains the anchor word party", () => {
     expect(ROLE_BLACKLIST_EN.has("party")).toBe(true);
+  });
+
+  it("contains court words so court names do not become entity heuristics", () => {
+    expect(ROLE_BLACKLIST_EN.has("court")).toBe(true);
+    expect(ROLE_BLACKLIST_EN.has("courts")).toBe(true);
   });
 
   it("does not contain empty strings", () => {

@@ -1,29 +1,11 @@
 /**
- * Round-trip verifier — the zero-miss safety net.
+ * Round-trip verifier.
  *
- * Eng review lock-in #2: after every redaction pipeline run, the OUTPUT
- * DOCX is re-parsed, every text-bearing scope is walked, and every string
- * in the original sensitive list is searched for. If even one survived,
- * the download is BLOCKED and the user is shown which strings, in which
- * scopes, escaped the redactor.
- *
- * This is the mechanism that converts the redactor's regex imperfection
- * into a *detectable* error instead of a silent leak. It is the single
- * most important non-invariant safety mechanism in the entire product.
- *
- * Critical property: this verifier intentionally does NOT trust the redactor
- * that produced the output. It re-loads the bytes from scratch, walks the
- * scopes via the same scope walker the redactor uses, and searches with
- * plain string indexOf — no regex, no normalization, no clever tricks. It
- * is the dumbest, most direct check we can possibly run, and that is the
- * point: if anything in the redactor pipeline is wrong (a regex bug, a
- * coalescer bug, a missed scope), this verifier catches it.
- *
- * Public API:
- *   - verifyRedaction(zip, sensitiveStrings) → VerifyResult
- *     Walks every text-bearing scope and reports any sensitive string that
- *     survived. Empty `survived` array means a clean output.
- *   - VerifyResult.isClean — convenience boolean for the ship gate.
+ * Contract:
+ * - trust only the output DOCX and selected literal payloads;
+ * - scan visible text, field instructions, and relationship targets;
+ * - use literal string checks only: no regex, no normalization;
+ * - report every survivor with target id, scope, surface, and count.
  */
 
 import type JSZip from "jszip";

@@ -134,7 +134,7 @@ Person names and legal entity names — detected via **structural cues** (corpor
 - `CEO Jane Doe`, `President Kim`
 
 **What doesn't belong:**
-- Specific hardcoded names like "Acme Corp" (that's the **seed editor's** job, not a rule)
+- Specific hardcoded names like "Acme Corp" (use manual additions or internal propagation fixtures, not shipped rules)
 - Heuristic capitalization matches without a suffix cue → `heuristics`
 
 ### 2.5 `structural`
@@ -143,7 +143,7 @@ Position-dependent parsers that extract **context**, not candidates directly.
 
 **Boundary:** if it depends on *where* in the document something appears (beginning, signature block, definition section), it belongs here.
 
-**Key difference from other categories:** structural parsers output `DefinedTerm[]` or similar structured context, NOT `Candidate[]`. Their output is used as **input** to later phases (heuristics in particular).
+**Key difference from other categories:** structural parsers output `StructuralDefinition[]`, NOT `Candidate[]`. Their output is used as **input** to later phases (heuristics in particular).
 
 **Examples:**
 - Definition section: `"X" means Y`, `"X" shall mean Y`, `hereinafter "X"`, `"X"이라 함은 Y`, `(이하 "X")`
@@ -167,23 +167,25 @@ Document-specific entity discovery — the "everything else" category for fuzzy 
 - Repeatability with role blacklist: token appears 3+ times AND is not in the role blacklist (`당사자`, `party`, `plaintiff`, …) → candidate entity
 - Email-domain inference: `legal@acme-corp.com` → suggest `Acme Corp`
 
-**Key invariant:** heuristics **must** consume `context.definedTerms` from the structural phase to preserve D9 defined-term policy. A "defined" term classified by the parser MUST NOT be re-flagged by a heuristic as a literal.
+**Key invariant:** heuristics **must** consume `context.structuralDefinitions` from the structural phase to preserve D9 defined-term policy. A label classified by the parser MUST NOT be re-flagged by a heuristic as a literal.
 
 **Runs last** because heuristics depend on structural output (definition awareness) and regex output (to avoid double-counting identifiers that already matched a rule).
 
 ### 2.7 `legal`
 
-Legal document-specific patterns that don't match outside legal contexts.
+Litigation-specific patterns that can identify a case or docket.
 
-**Boundary:** if it only makes sense inside a legal document (case numbers, statute references, court names, procedural markers), it belongs here.
+**Boundary:** if the string can directly connect the document to a specific case or docket (case numbers, docket labels, case-number labels), it belongs here.
 
 **Examples:**
 - Korean court case numbers: `2024가합12345`, `2024다67890`, `2024노1234`, `2024도5678`
-- Korean court names: `서울중앙지방법원`, `대법원`, `서울고등법원`
-- Statute references: `제15조 제2항`, `법률 제1234호`, `민법 제750조`
-- English case citations: `123 F.3d 456 (2d Cir. 2020)` (optional, low ROI for Korean lawyer audience)
+- Case/docket labels: `Case No.: 24-CV-1234`, `Docket No.: 1:24-cv-00001`
 
 **What doesn't belong:**
+- Contract article/section references: `Section 10.1`, `제15조 제2항`
+- Public statute citations: `민법 제750조`, `17 U.S.C. § 101`
+- Court names: `서울중앙지방법원`, `대법원`, `Seoul Central District Court`
+- Precedent citations: `123 F.3d 456`, `456 U.S. 789`
 - Corporate names of parties → `entities`
 - Dates of proceedings → `temporal`
 
@@ -232,7 +234,7 @@ export interface RegexRule {
 ### 3.2 `StructuralParser`
 
 ```typescript
-export interface DefinedTerm {
+export interface StructuralDefinition {
   /** "the Buyer", "매수인", "'갑'" */
   readonly label: string;
   /** "ABC Corporation", "사과회사" */
@@ -247,13 +249,13 @@ export interface StructuralParser {
   readonly languages: readonly Language[];
   readonly description: string;
   /** Pure function: text → structured context. No side effects. */
-  parse(normalizedText: string): readonly DefinedTerm[];
+  parse(normalizedText: string): readonly StructuralDefinition[];
 }
 ```
 
 **Used for position-dependent extraction.** Runs BEFORE any RegexRule. Output is fed into the heuristic phase as context (for D9 awareness).
 
-StructuralParser's output shape (`DefinedTerm`) is deliberately different from `Candidate`. A defined term is not a redaction target in itself — it's metadata about what role a label plays in the document. The heuristic phase (§ 3.3) converts defined terms into candidates if and only if the user opts in (per D9).
+StructuralParser's output shape (`StructuralDefinition`) is deliberately different from `Candidate`. A structural definition is not a redaction target in itself — it's metadata about what role a label plays in the document. The heuristic phase (§ 3.3) uses structural definitions as context and must not rediscover their labels as ordinary literals.
 
 ### 3.3 `Heuristic`
 
@@ -268,7 +270,7 @@ export interface Candidate {
 }
 
 export interface HeuristicContext {
-  readonly definedTerms: readonly DefinedTerm[];
+  readonly structuralDefinitions: readonly StructuralDefinition[];
   readonly priorCandidates: readonly Candidate[];
   readonly documentLanguage: "ko" | "en" | "mixed";
 }
@@ -287,19 +289,19 @@ export interface Heuristic {
 
 **Used for fuzzy discovery.** Confidence scoring exists because heuristics have false positives — the UI can sort by confidence or hide low-confidence matches from the default view.
 
-**Key invariant:** every heuristic MUST call `context.definedTerms.some(dt => dt.label === candidateText)` and skip labels that are defined terms (per D9). This is not a suggestion — it's a safety requirement. A future lint rule should enforce this (see § 7).
+**Key invariant:** every heuristic MUST call `context.structuralDefinitions.some(def => def.label === candidateText)` and skip labels that are structural definitions (per D9). This is not a suggestion — it's a safety requirement. A future lint rule should enforce this (see § 7).
 
 ### 3.4 Why three shapes, not one
 
 A single unified `Rule` interface was considered and rejected. Reasons:
 
 - **RegexRule's `pattern: RegExp` is a data field.** The runner can batch-validate, batch-fuzz, batch-ReDoS-audit without calling each rule. A unified shape would force every rule to be a function, losing this.
-- **StructuralParser's output is `DefinedTerm[]`, not `Candidate[]`.** A union type (`Candidate | DefinedTerm`) forces every consumer to narrow, which is boilerplate noise.
+- **StructuralParser's output is `StructuralDefinition[]`, not `Candidate[]`.** A union type (`Candidate | StructuralDefinition`) forces every consumer to narrow, which is boilerplate noise.
 - **Heuristic's `HeuristicContext` dependency is not needed by RegexRule.** A unified signature means regex rules take parameters they never use, which hurts readability.
 
 The three shapes correspond to three runner phases:
 
-1. **Structural phase** — run `StructuralParser[]`, accumulate `DefinedTerm[]`. No candidates produced.
+1. **Structural phase** — run `StructuralParser[]`, accumulate `StructuralDefinition[]`. No candidates produced.
 2. **Regex phase** — run `RegexRule[]`, produce `Candidate[]` from pattern matches. Normalization done once.
 3. **Heuristic phase** — run `Heuristic[]` with context from (1) + (2), produce more `Candidate[]`.
 
@@ -438,14 +440,14 @@ export interface StructuralParser {
   readonly subcategory: string;
   readonly languages: readonly Language[];
   readonly description: string;
-  parse(normalizedText: string): readonly DefinedTerm[];
+  parse(normalizedText: string): readonly StructuralDefinition[];
 }
 ```
 
 ### 5.2 Example — definition-section parser (Korean + English)
 
 ```typescript
-import type { StructuralParser, DefinedTerm } from "../_framework/types.js";
+import type { StructuralParser, StructuralDefinition } from "../_framework/types.js";
 
 export const DEFINITION_SECTION: StructuralParser = {
   id: "structural.definition-section",
@@ -453,8 +455,8 @@ export const DEFINITION_SECTION: StructuralParser = {
   subcategory: "definition-section",
   languages: ["ko", "en"],
   description: "Extracts defined terms from 'X means Y' / '\"X\"이라 함은 Y' patterns",
-  parse(text: string): readonly DefinedTerm[] {
-    const out: DefinedTerm[] = [];
+  parse(text: string): readonly StructuralDefinition[] {
+    const out: StructuralDefinition[] = [];
     // English: "X" means Y, "X" shall mean Y, hereinafter "X"
     const english = /"([^"]+)"\s+(?:means|shall\s+mean)\s+([^.;]+)/g;
     let m: RegExpExecArray | null;
@@ -475,7 +477,7 @@ export const DEFINITION_SECTION: StructuralParser = {
 
 - **Pure function.** Same input → same output. No Date.now, no Math.random, no I/O.
 - **Position-aware.** If your parser only looks at `text[0..100]` (first paragraph for party declaration), document that in the description field.
-- **Output is `DefinedTerm[]`, not `Candidate[]`.** Structural parsers do not produce redaction candidates directly. They produce metadata that later phases use.
+- **Output is `StructuralDefinition[]`, not `Candidate[]`.** Structural parsers do not produce redaction candidates directly. They produce metadata that later phases use.
 - **NFC not required.** The runner passes in `normalizeForMatching(text)` which does NOT apply NFC. If you need NFC for name matching, call `text.normalize("NFC")` inside `parse` — but then you lose position fidelity, so only do this for structural parsers that don't need offsets in their output.
 
 ### 5.4 Testing
@@ -510,7 +512,7 @@ export interface Heuristic {
 
 **Every heuristic must:**
 
-1. **Consume `context.definedTerms`.** If your candidate matches a defined term's `label`, skip it (D9 policy: defined terms are unchecked by default and must not be rediscovered as literals).
+1. **Consume `context.structuralDefinitions`.** If your candidate matches a structural definition's `label`, skip it (D9 policy: defined labels are unchecked by default and must not be rediscovered as literals).
 2. **Consume `context.priorCandidates`.** If your candidate is a substring of an already-matched prior candidate with higher confidence, skip it (dedup happens later, but double-emission wastes the user's review time).
 3. **Apply the role-word blacklist.** Tokens like `당사자`, `party`, `plaintiff`, `claimant`, `respondent`, `client`, `대표`, `본인` are repeated heavily in legal documents but are NOT sensitive. Every heuristic must filter them out BEFORE emitting candidates.
 4. **Assign a confidence score < 1.0.** Regex rules emit 1.0 (pattern matched = confident). Heuristics by definition are uncertain. Use 0.5–0.9 based on how many positive signals (cap cluster + quoted + frequency) aligned.
@@ -530,7 +532,7 @@ export const CAPITALIZATION_CLUSTER_EN: Heuristic = {
   levels: ["standard", "paranoid"],
   description: "English 2+ consecutive capitalized words as candidate entity name",
   detect(text: string, ctx: HeuristicContext): readonly Candidate[] {
-    const definedLabels = new Set(ctx.definedTerms.map((d) => d.label));
+    const definedLabels = new Set(ctx.structuralDefinitions.map((d) => d.label));
     const priorTexts = new Set(ctx.priorCandidates.map((c) => c.text));
     const pattern = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}\b/g;
     const out: Candidate[] = [];
@@ -654,7 +656,7 @@ Every rule (regex, structural, heuristic) ships with at least these tests, co-lo
 
 **Total minimum: 5–7 tests per rule.** For 200 rules that's 1000–1400 new test cases. Verify the count in Phase 5 against the coverage bar.
 
-**Migration parity protocol.** Any refactor that touches existing rules (moving files, renaming subcategories, changing the rule shape, extracting post-filters) MUST follow this order: (1) write a characterization test that captures the current behavior exactly — regex source/flags, kind-to-subcategory mapping, detection output order — and passes on the pre-refactor code; (2) perform the refactor; (3) verify the characterization test still passes byte-for-byte. A "green suite" after a refactor is necessary but not sufficient — the characterization test is the only thing that proves the refactor was strictly behavior-preserving. See `docs/phases/phase-0-framework-port.md` § 12a for the canonical example.
+**Migration parity protocol.** Any refactor that touches existing rules (moving files, renaming subcategories, changing the rule shape, extracting post-filters) MUST follow this order: (1) write a characterization test that captures the current behavior exactly — regex source/flags, kind-to-subcategory mapping, detection output order — and passes on the pre-refactor code; (2) perform the refactor; (3) verify the characterization test still passes byte-for-byte. A "green suite" after a refactor is necessary but not sufficient — the characterization test is the only thing that proves the refactor was strictly behavior-preserving. See `phase-0-framework-port.md` § 12a in the internal design docs (`~/.document-redactor-internal/phases/`) for the canonical example.
 
 ### 8.2 Test file template
 
@@ -760,7 +762,7 @@ Input text: `2024가합12345`
 
 Candidates before dedup:
 - `"2024"` from `temporal.date-ko` (matches the year prefix alone? — probably not, because the pattern should require `년` or `-`)
-- `"2024가합12345"` from `legal.case-number-ko`
+- `"2024가합12345"` from `legal.ko-case-number`
 
 If both fire, keep both — they are different texts, no conflict. The redactor replaces longest first, so `2024가합12345` is handled before the standalone `2024` would need to be touched.
 
@@ -780,7 +782,7 @@ Per design-v1.md Lock-in #4, the UI exposes three levels: Conservative, Standard
 
 | Level | What it does | Who uses it |
 |---|---|---|
-| **Conservative** | Click-to-select + user seeds only. Structural parsers + identifiers (PII). **No heuristics.** No fuzzy matching. | Users who want full control, never want a tool to pick for them |
+| **Conservative** | Click-to-select + manual additions. Structural parsers + identifiers (PII). **No heuristics.** No fuzzy matching. | Users who want full control, never want a tool to pick for them |
 | **Standard (default)** | Conservative + financial + temporal + entities + legal. Covers 80%+ of real contracts with one click. **No heuristics.** | 95% of users — lawyers who want "drop, review, apply" |
 | **Paranoid** | Standard + heuristics (capitalization cluster, quoted term, repeatability). Adds false positives but catches everything. | High-risk M&A docs, maximum-risk filings |
 
@@ -892,7 +894,7 @@ const pattern = /(?<![\uAC00-\uD7A3])김철수(?![\uAC00-\uD7A3])/g;
 const pattern = /(ABC\s+Corp|Sunrise\s+Inc|Acme\s+Ltd)/g;
 ```
 
-Specific entity names are the seed editor's job. The tool should NOT ship with hardcoded lists of company names. Users add those at the UI level as seeds, which flow through variant propagation (Lane C). Rules should detect by STRUCTURE (suffix cues), not by LIST.
+Specific entity names belong in user review/manual additions or internal propagation fixtures. The tool should NOT ship with hardcoded lists of company names, and the current UI has no public seed-entry workflow. Rules should detect by STRUCTURE (suffix cues), not by LIST.
 
 ### 12.3 Whole-sentence matching
 
@@ -1020,9 +1022,7 @@ Target: 5 parsers. Integrated tests against `tests/fixtures/bilingual_nda_worst_
 | `financial.financial-context` | heuristic (yes, it's a heuristic despite the name — context-aware) | 로열티/수수료/요율 keyword proximity |
 | `temporal.temporal-context` | heuristic | 기간/유효기간/효력 proximity |
 | `entities.identity-context` | heuristic | 원고/피고/claimant proximity |
-| `legal.case-number-ko` | legal | `2024가합12345` et al |
-| `legal.court-name-ko` | legal | 서울중앙지방법원, 대법원 |
-| `legal.statute-reference` | legal | 제N조 제M항, 법률 제N호 |
+| `legal.ko-case-number` | legal | `2024가합12345` et al |
 
 ### 13.5 Phase 4 targets — heuristics
 
@@ -1062,7 +1062,7 @@ Phase 5 decides whether to stay on Path X (ship v1.1 with current rule set) or p
 
 ### 14.1 The bar (finalized 2026-04-10)
 
-- **Pass (ship Path X v1.1):** ≥90% auto-detection coverage on 3 real document samples, remaining ≤10% fillable by quick seed entry review (user adds misses in under 60 seconds after seeing auto-detect list).
+- **Pass (ship Path X v1.1):** ≥90% auto-detection coverage on 3 real document samples, remaining ≤10% fillable by quick manual-addition review (user adds misses in under 60 seconds after seeing auto-detect list).
 - **Borderline (one more Phase 4 tuning round):** 80–90% coverage.
 - **Fail (pivot to Path Y-lite):** <80% coverage.
 
@@ -1110,11 +1110,11 @@ coverage = |auto_detected ∩ ground_truth| / |ground_truth|
 false_positive_rate = |auto_detected \ ground_truth| / |auto_detected|
 ```
 
-The script runs the tool's `analyzeZip` pipeline without any user seeds and compares the auto-detected list against the ground truth. It does NOT require running the UI — pure engine test.
+The script runs the tool's `analyzeZip` pipeline without injected propagation seeds and compares the auto-detected list against the ground truth. It does NOT require running the UI — pure engine test.
 
 ### 14.5 Time-to-complete (secondary metric)
 
-For each sample, also measure: how long does the user spend going from "drop file" to "download redacted copy" in the UI, **including** the time to review the auto-detect list and add any missing seeds?
+For each sample, also measure: how long does the user spend going from "drop file" to "download redacted copy" in the UI, **including** the time to review the auto-detect list and add any missed strings?
 
 - Target: < 60 seconds for a 10–20 page contract
 - Time under 30 seconds → Path X is working
@@ -1151,7 +1151,7 @@ bun run coverage-audit <doc> # (Phase 5) measure coverage against ground truth
 ```
 src/detection/
 ├── _framework/
-│   ├── types.ts              (RegexRule, StructuralParser, Heuristic, Candidate, DefinedTerm)
+│   ├── types.ts              (RegexRule, StructuralParser, Heuristic, Candidate, StructuralDefinition)
 │   ├── registry.ts           (imports all category files, flattens into ALL_REGEX_RULES / ALL_STRUCTURAL_PARSERS / ALL_HEURISTICS)
 │   ├── runner.ts             (runAllRules, 3 phases)
 │   ├── language-detect.ts    (detectLanguage)

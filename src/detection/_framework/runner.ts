@@ -1,86 +1,14 @@
 /**
- * Rule runner — Phase 1 implements all three phases.
+ * Three-phase rule runner.
  *
- * Pipeline:
+ * Contract:
+ * - normalize once, then share the PositionMap across all phases;
+ * - run structural parsers, regex rules, then heuristics in that order;
+ * - return original document bytes in Candidate.text, never normalized bytes;
+ * - do not dedupe here; UI/export target construction owns aggregation;
+ * - fail loud. Rule/parser/heuristic exceptions intentionally bubble.
  *
- *              ┌───────────────────────────────┐
- *  text ──────▶│  normalizeForMatching(text)   │
- *              │   returns { text, origOffsets }│
- *              └───────────┬───────────────────┘
- *                          │
- *                normalizedText + origOffsets
- *                          │
- *                          ▼
- *         ┌────────────────┴─────────────────┐
- *         │                                  │
- *         ▼                                  │
- *   ┌─────────────────┐                      │
- *   │   Phase 1:      │                      │
- *   │   Structural    │ ──▶ StructuralDefinition[]
- *   │   parsers run   │                      │
- *   │   first         │                      │
- *   └────────┬────────┘                      │
- *            │                                │
- *            │ context for heuristic phase    │
- *            ▼                                │
- *   ┌────────────────┐                        │
- *   │   Phase 2:     │ ◀──────────────────────┘
- *   │   Regex rules  │ ──▶ Candidate[] (confidence = 1.0)
- *   └────────┬───────┘
- *            │ prior candidates for heuristic context
- *            ▼
- *   ┌────────────────┐
- *   │   Phase 3:     │ ──▶ Candidate[] (confidence < 1.0)
- *   │   Heuristics   │
- *   │   run last     │
- *   └────────┬───────┘
- *            │
- *            ▼
- *       RunAllResult { candidates, structuralDefinitions, documentLanguage }
- *
- * Key properties:
- *
- *   1. Normalization runs ONCE per call. All three phases share the same
- *      PositionMap. Parsers and heuristics that need original-byte recovery
- *      use the shared offset map — never re-normalize.
- *
- *   2. Structural phase runs first on purpose. Its output becomes
- *      HeuristicContext.structuralDefinitions so phase 3 can skip D9-defined
- *      labels (e.g., "the Buyer" when "the Buyer" means "ABC Corporation").
- *
- *   3. Regex phase is stateless. Same semantics as Phase 0 (clone regex per
- *      rule, exec loop, postFilter, slice original bytes via origOffsets).
- *
- *   4. Heuristic phase runs last. Consumes structural definitions + prior
- *      regex candidates + document language. Applies role blacklist internally
- *      (each heuristic imports its own blacklist; the runner stays blacklist-
- *      agnostic).
- *
- *   5. No dedup at runner level. The runner returns overlapping/duplicate
- *      candidates freely. Dedup happens in `buildAllTargetsFromZip` per
- *      RULES_GUIDE § 12.9 "no early dedupe".
- *
- *   6. FAIL-LOUD at every step. No exception-handling wrappers anywhere in
- *      this file. A
- *      throwing rule / parser / heuristic surfaces as a stack trace per
- *      design-v1 Lock-in #15 (zero-miss invariant). Callers that want
- *      best-effort semantics must wrap the call themselves — the runner
- *      NEVER swallows.
- *
- *   7. Language filter is optional per-call. When `opts.language` is
- *      undefined, every rule runs regardless of its `languages` field
- *      (Phase 0 backward compatibility — this is the code path legacy
- *      `detect-pii.ts` uses). When set to "ko" | "en" | "mixed", rules whose
- *      `languages` excludes the filter value AND does not include "universal"
- *      are skipped. Per RULES_GUIDE § 11.2, "mixed" passes through every
- *      rule (bilingual documents run both language tracks).
- *
- * See:
- *   - docs/RULES_GUIDE.md § 3.4 (three-shape rationale)
- *   - docs/RULES_GUIDE.md § 10.3 (level filter)
- *   - docs/RULES_GUIDE.md § 11.2 (language filter)
- *   - docs/phases/phase-1-rulebook.md § 4.1 (this diagram, authoritative copy)
- *   - docs/phases/phase-1-rulebook.md § 7 (this section, the exact spec)
+ * See docs/RULES_GUIDE.md for the full rule authoring contract.
  */
 
 import { normalizeForMatching, type PositionMap } from "../normalize.js";

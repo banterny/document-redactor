@@ -20,6 +20,7 @@ export interface SelectionOccurrence {
   readonly text: string;
   readonly normalizedText: string;
   readonly ruleId: string | null;
+  readonly confidence?: number;
   readonly sourceKind: SelectionSourceKind;
   readonly reviewSection: SelectionReviewSection;
   readonly defaultSelected: boolean;
@@ -133,7 +134,7 @@ export function buildSelectionTargets(
     }
   }
 
-  return [...buckets.values()].map((bucket) => ({
+  const targets = [...buckets.values()].map((bucket) => ({
     id: buildSelectionTargetId(bucket.namespace, bucket.displayText),
     displayText: bucket.displayText,
     normalizedText: normalizeForMatching(bucket.displayText).text,
@@ -145,12 +146,38 @@ export function buildSelectionTargets(
     reviewSection: bucket.reviewSection,
     defaultSelected: bucket.defaultSelected,
   }));
+  assertNoSelectionTargetIdCollisions(targets);
+  return targets;
 }
 
 export function indexSelectionTargets(
   targets: readonly SelectionTarget[],
 ): ReadonlyMap<SelectionTargetId, SelectionTarget> {
   return new Map(targets.map((target) => [target.id, target] as const));
+}
+
+export function countSelectionTargets(
+  targets: readonly SelectionTarget[],
+): number {
+  return targets.length;
+}
+
+export function assertNoSelectionTargetIdCollisions(
+  targets: readonly Pick<SelectionTarget, "id" | "displayText">[],
+): void {
+  const seen = new Map<SelectionTargetId, string>();
+  for (const target of targets) {
+    const previous = seen.get(target.id);
+    if (previous === undefined) {
+      seen.set(target.id, target.displayText);
+      continue;
+    }
+    if (previous !== target.displayText) {
+      throw new Error(
+        `Selection target id collision for ${target.id}: "${previous}" vs "${target.displayText}"`,
+      );
+    }
+  }
 }
 
 export function resolveSelectedTargets(
@@ -195,8 +222,9 @@ export function buildResolvedTargetsFromStrings(
 export function buildManualSelectionTarget(
   text: string,
   reviewSection: SelectionReviewSection = "other",
+  matchCorpus?: string,
 ): SelectionTarget {
-  return buildSelectionTargets([
+  const target = buildSelectionTargets([
     {
       scope: null,
       text,
@@ -207,10 +235,52 @@ export function buildManualSelectionTarget(
       defaultSelected: true,
     },
   ])[0]!;
+
+  const corpusLiterals = findOriginalLiteralVariants(text, matchCorpus);
+  if (corpusLiterals.length === 0) return target;
+
+  return {
+    ...target,
+    literalVariants: sortLongestFirstUnique([
+      ...target.literalVariants,
+      ...corpusLiterals,
+    ]),
+  };
+}
+
+export function findOriginalLiteralVariants(
+  text: string,
+  matchCorpus?: string,
+): string[] {
+  if (matchCorpus === undefined || matchCorpus.length === 0) return [];
+
+  const normalizedNeedle = normalizeForMatching(text).text;
+  if (normalizedNeedle.length === 0) return [];
+
+  const normalizedCorpus = normalizeForMatching(matchCorpus);
+  const variants = new Set<string>();
+  let from = 0;
+
+  while (from <= normalizedCorpus.text.length - normalizedNeedle.length) {
+    const idx = normalizedCorpus.text.indexOf(normalizedNeedle, from);
+    if (idx < 0) break;
+
+    const start = normalizedCorpus.origOffsets[idx];
+    const end = normalizedCorpus.origOffsets[idx + normalizedNeedle.length];
+    if (start === undefined || end === undefined) break;
+
+    const original = matchCorpus.slice(start, end);
+    if (original.length > 0) {
+      variants.add(original);
+    }
+    from = idx + 1;
+  }
+
+  return [...variants];
 }
 
 function normalizeOccurrence(input: SelectionOccurrenceInput): SelectionOccurrence {
-  return {
+  const occurrence: SelectionOccurrence = {
     scope: input.scope,
     text: input.text,
     normalizedText: input.normalizedText,
@@ -219,6 +289,10 @@ function normalizeOccurrence(input: SelectionOccurrenceInput): SelectionOccurren
     reviewSection: input.reviewSection ?? defaultReviewSection(input.sourceKind),
     defaultSelected: input.defaultSelected ?? defaultSelected(input.sourceKind),
   };
+  if (input.confidence !== undefined) {
+    return { ...occurrence, confidence: input.confidence };
+  }
+  return occurrence;
 }
 
 function defaultReviewSection(

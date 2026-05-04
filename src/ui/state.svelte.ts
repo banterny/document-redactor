@@ -35,11 +35,24 @@ import {
   type GuidedFinalizeReport,
 } from "../finalize/guided-recovery.js";
 import {
-  analyzeZip,
+  analyzeDocumentSession,
   applyRedaction,
   defaultSelections,
   type Analysis,
 } from "./engine.js";
+import {
+  replaceSessionAnalysis,
+  type DocumentAnalysisSession,
+} from "./analysis-session.js";
+import {
+  createPolicyFile,
+  parsePolicyFileJson,
+  policyEntryKey,
+  serializePolicyFile,
+  type PolicyCategory,
+  type PolicyEntry,
+  type PolicyFile,
+} from "./policy-file.js";
 import {
   buildManualSelectionTarget,
   buildSelectionTargetId,
@@ -47,6 +60,7 @@ import {
   type SelectionTarget,
   type SelectionTargetId,
 } from "../selection-targets.js";
+import { canDownloadReport, type DownloadPolicyKind } from "./download-policy.js";
 
 /** Discriminated union of every state the app can be in. */
 export type AppPhase =
@@ -55,52 +69,44 @@ export type AppPhase =
   | {
       readonly kind: "postParse";
       readonly fileName: string;
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "redacting";
       readonly fileName: string;
-      /** Carried through so risk states can offer "back to review". */
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "repairing";
       readonly fileName: string;
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "downloadReady";
       readonly fileName: string;
       readonly report: GuidedFinalizeReport;
       /** Preserved so the user can return to review after a clean pass. */
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "downloadRepaired";
       readonly fileName: string;
       readonly report: GuidedFinalizeReport;
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "downloadWarning";
       readonly fileName: string;
       readonly report: GuidedFinalizeReport;
       /** Preserved so the user can return to review after a warning. */
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "downloadRisk";
       readonly fileName: string;
       readonly report: GuidedFinalizeReport;
       /** Preserved so the user can return to review and fix selections. */
-      readonly bytes: Uint8Array;
-      readonly analysis: Analysis;
+      readonly analysisSession: DocumentAnalysisSession;
     }
   | {
       readonly kind: "fatalError";
@@ -116,26 +122,7 @@ export type AppPhase =
  *
  * Defined term labels have no manual-add affordance.
  */
-export type ManualCategory =
-  | "literals"
-  | "financial"
-  | "temporal"
-  | "entities"
-  | "legal"
-  | "other";
-
-/**
- * Default entity seeds — empty. Seeds drive Lane C variant propagation
- * (user says "ABC Corporation is a party" → propagate to "ABC Corp.",
- * "A.B.C." variants). The v1 UI does not expose a seed editor because
- * Phase 1's structural.party-declaration parser + entities regex rules
- * already catch the main parties automatically, and Phase 2's per-
- * category "+ 추가" affordance covers the missed-variant case.
- *
- * Callers that still want seed-driven propagation can call
- * `appState.setSeeds([...])` programmatically before `loadFile`.
- */
-const DEFAULT_SEEDS: readonly string[] = [];
+export type ManualCategory = PolicyCategory;
 
 function createManualAdditions(): Map<ManualCategory, Set<string>> {
   return new Map([
@@ -146,6 +133,10 @@ function createManualAdditions(): Map<ManualCategory, Set<string>> {
     ["legal", new Set()],
     ["other", new Set()],
   ]);
+}
+
+function createManualSelectionDefaults(): Map<string, boolean> {
+  return new Map();
 }
 
 export function classifyFinalizedReportPhase(
@@ -176,17 +167,20 @@ function manualCategoryToSection(
 function mergePersistedManualTargets(
   analysis: Analysis,
   manualAdditions: ReadonlyMap<ManualCategory, ReadonlySet<string>>,
-): { analysis: Analysis; manualSelectionIds: Set<SelectionTargetId> } {
+  manualSelectionDefaults: ReadonlyMap<string, boolean>,
+): { analysis: Analysis; manualSelectionDecisions: Map<SelectionTargetId, boolean> } {
   let selectionTargets = [...analysis.selectionTargets];
   let selectionTargetById = new Map(analysis.selectionTargetById);
-  const manualSelectionIds = new Set<SelectionTargetId>();
+  const manualSelectionDecisions = new Map<SelectionTargetId, boolean>();
 
   for (const [category, values] of manualAdditions.entries()) {
     for (const text of values) {
+      const defaultSelected =
+        manualSelectionDefaults.get(policyEntryKey({ category, text })) ?? true;
       const autoId = buildSelectionTargetId("auto", text);
       const autoTarget = selectionTargetById.get(autoId);
       if (autoTarget !== undefined) {
-        manualSelectionIds.add(autoId);
+        manualSelectionDecisions.set(autoId, defaultSelected);
         if (!autoTarget.sourceKinds.includes("manual")) {
           const merged = {
             ...autoTarget,
@@ -204,6 +198,7 @@ function mergePersistedManualTargets(
       const manualTarget = buildManualSelectionTarget(
         text,
         manualCategoryToSection(category),
+        analysis.manualMatchCorpus,
       );
       if (!selectionTargetById.has(manualTarget.id)) {
         selectionTargets = [...selectionTargets, manualTarget];
@@ -212,7 +207,7 @@ function mergePersistedManualTargets(
           manualTarget,
         );
       }
-      manualSelectionIds.add(manualTarget.id);
+      manualSelectionDecisions.set(manualTarget.id, defaultSelected);
     }
   }
 
@@ -222,7 +217,7 @@ function mergePersistedManualTargets(
       selectionTargets,
       selectionTargetById,
     },
-    manualSelectionIds,
+    manualSelectionDecisions,
   };
 }
 
@@ -259,6 +254,7 @@ function ensureManualTarget(
   const manualTarget = buildManualSelectionTarget(
     text,
     manualCategoryToSection(category),
+    analysis.manualMatchCorpus,
   );
   if (analysis.selectionTargetById.has(manualTarget.id)) {
     return { analysis, targetId: manualTarget.id };
@@ -340,9 +336,6 @@ function replaceSelectionTarget(
 class AppState {
   phase = $state<AppPhase>({ kind: "idle" });
 
-  /** The user's editable seed list, always available regardless of phase. */
-  seeds = $state<string[]>([...DEFAULT_SEEDS]);
-
   /**
    * Current checkbox selections — the set of selection target ids the
    * redactor will resolve when Apply is clicked. Mutable on purpose:
@@ -363,6 +356,19 @@ class AppState {
   );
 
   /**
+   * Selection defaults for manual additions, keyed by category + text.
+   * UI-created additions default to selected; imported policy entries can
+   * intentionally restore an unchecked manual candidate.
+   */
+  manualSelectionDefaults = $state<Map<string, boolean>>(
+    createManualSelectionDefaults(),
+  );
+
+  /** Last local policy import/export status shown in the review panel. */
+  policyStatus = $state<string | null>(null);
+  policyImportError = $state<string | null>(null);
+
+  /**
    * Focused selection target id — set when the user clicks the jump-to
    * affordance in the candidates list or review banner. The rendered
    * document body watches this and scrolls the first matching mark into view.
@@ -381,21 +387,26 @@ class AppState {
     this.residualRiskAcknowledged = false;
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const analyzed = await analyzeZip(bytes, this.seeds);
-      const { analysis, manualSelectionIds } = mergePersistedManualTargets(
-        analyzed,
+      const analyzedSession = await analyzeDocumentSession(bytes);
+      const { analysis, manualSelectionDecisions } = mergePersistedManualTargets(
+        analyzedSession.analysis,
         this.manualAdditions,
+        this.manualSelectionDefaults,
       );
+      const analysisSession = replaceSessionAnalysis(analyzedSession, analysis);
       const baseSelections = defaultSelections(analysis);
-      for (const id of manualSelectionIds) {
-        baseSelections.add(id);
+      for (const [id, selected] of manualSelectionDecisions) {
+        if (selected) {
+          baseSelections.add(id);
+        } else {
+          baseSelections.delete(id);
+        }
       }
       this.selections = baseSelections;
       this.phase = {
         kind: "postParse",
         fileName: file.name,
-        bytes,
-        analysis,
+        analysisSession,
       };
     } catch (err) {
       this.phase = {
@@ -408,10 +419,17 @@ class AppState {
 
   toggleSelection(targetId: SelectionTargetId): void {
     if (this.phase.kind !== "postParse") return;
+    const target = this.phase.analysisSession.analysis.selectionTargetById.get(targetId);
+    let selected: boolean;
     if (this.selections.has(targetId)) {
       this.selections.delete(targetId);
+      selected = false;
     } else {
       this.selections.add(targetId);
+      selected = true;
+    }
+    if (target?.sourceKinds.includes("manual") === true) {
+      this.rememberManualSelectionDefault(target.displayText, selected);
     }
     // Defensive reactivity: plain Set mutations do not reliably trigger
     // Svelte 5 re-renders across runtime versions. Reassign the reference
@@ -433,12 +451,24 @@ class AppState {
     if (bucket === undefined) return;
     if (bucket.has(trimmed)) return;
     bucket.add(trimmed);
+    this.manualSelectionDefaults.set(policyEntryKey({ category, text: trimmed }), true);
     if (this.phase.kind === "postParse") {
-      const ensured = ensureManualTarget(this.phase.analysis, category, trimmed);
-      this.phase = { ...this.phase, analysis: ensured.analysis };
+      const ensured = ensureManualTarget(
+        this.phase.analysisSession.analysis,
+        category,
+        trimmed,
+      );
+      this.phase = {
+        ...this.phase,
+        analysisSession: replaceSessionAnalysis(
+          this.phase.analysisSession,
+          ensured.analysis,
+        ),
+      };
       this.selections.add(ensured.targetId);
     }
     this.manualAdditions = new Map(this.manualAdditions);
+    this.manualSelectionDefaults = new Map(this.manualSelectionDefaults);
     this.selections = new Set(this.selections);
   }
 
@@ -447,9 +477,19 @@ class AppState {
     if (bucket === undefined) return;
     if (!bucket.has(text)) return;
     bucket.delete(text);
+    this.manualSelectionDefaults.delete(policyEntryKey({ category, text }));
     if (this.phase.kind === "postParse") {
-      const removed = removeManualTarget(this.phase.analysis, text);
-      this.phase = { ...this.phase, analysis: removed.analysis };
+      const removed = removeManualTarget(
+        this.phase.analysisSession.analysis,
+        text,
+      );
+      this.phase = {
+        ...this.phase,
+        analysisSession: replaceSessionAnalysis(
+          this.phase.analysisSession,
+          removed.analysis,
+        ),
+      };
       if (!removed.keepSelected) {
         this.selections.delete(removed.targetId);
       }
@@ -458,7 +498,103 @@ class AppState {
       this.selections.delete(buildSelectionTargetId("auto", text));
     }
     this.manualAdditions = new Map(this.manualAdditions);
+    this.manualSelectionDefaults = new Map(this.manualSelectionDefaults);
     this.selections = new Set(this.selections);
+  }
+
+  exportPolicyJson(name = "Document redaction policy"): string {
+    const entries: PolicyEntry[] = [];
+    for (const [category, values] of this.manualAdditions.entries()) {
+      for (const text of values) {
+        entries.push({
+          text,
+          category,
+          defaultSelected: this.manualSelectionDefaultFor(category, text),
+        });
+      }
+    }
+    const policy = createPolicyFile(entries, { name });
+    this.policyStatus = `Exported ${policy.entries.length} policy item(s).`;
+    this.policyImportError = null;
+    return serializePolicyFile(policy);
+  }
+
+  importPolicyText(json: string): PolicyFile | null {
+    let policy: PolicyFile;
+    try {
+      policy = parsePolicyFileJson(json);
+    } catch (err) {
+      this.policyImportError = err instanceof Error ? err.message : String(err);
+      this.policyStatus = null;
+      return null;
+    }
+
+    this.applyPolicy(policy);
+    this.policyImportError = null;
+    this.policyStatus = `Imported ${policy.entries.length} policy item(s).`;
+    return policy;
+  }
+
+  private applyPolicy(policy: PolicyFile): void {
+    let nextAnalysis =
+      this.phase.kind === "postParse" ? this.phase.analysisSession.analysis : null;
+
+    for (const entry of policy.entries) {
+      const bucket = this.manualAdditions.get(entry.category);
+      if (bucket === undefined) continue;
+      bucket.add(entry.text);
+      this.manualSelectionDefaults.set(policyEntryKey(entry), entry.defaultSelected);
+
+      if (nextAnalysis !== null && this.phase.kind === "postParse") {
+        const ensured = ensureManualTarget(nextAnalysis, entry.category, entry.text);
+        nextAnalysis = ensured.analysis;
+        if (entry.defaultSelected) {
+          this.selections.add(ensured.targetId);
+        } else {
+          this.selections.delete(ensured.targetId);
+        }
+      }
+    }
+
+    if (nextAnalysis !== null && this.phase.kind === "postParse") {
+      this.phase = {
+        ...this.phase,
+        analysisSession: replaceSessionAnalysis(
+          this.phase.analysisSession,
+          nextAnalysis,
+        ),
+      };
+    }
+    this.manualAdditions = new Map(this.manualAdditions);
+    this.manualSelectionDefaults = new Map(this.manualSelectionDefaults);
+    this.selections = new Set(this.selections);
+  }
+
+  private manualSelectionDefaultFor(
+    category: ManualCategory,
+    text: string,
+  ): boolean {
+    if (this.phase.kind === "postParse") {
+      const analysis = this.phase.analysisSession.analysis;
+      const autoId = buildSelectionTargetId("auto", text);
+      if (analysis.selectionTargetById.has(autoId)) {
+        return this.selections.has(autoId);
+      }
+      const manualId = buildSelectionTargetId("manual", text);
+      if (analysis.selectionTargetById.has(manualId)) {
+        return this.selections.has(manualId);
+      }
+    }
+    return this.manualSelectionDefaults.get(policyEntryKey({ category, text })) ?? true;
+  }
+
+  private rememberManualSelectionDefault(text: string, selected: boolean): void {
+    for (const [category, bucket] of this.manualAdditions.entries()) {
+      if (!bucket.has(text)) continue;
+      this.manualSelectionDefaults.set(policyEntryKey({ category, text }), selected);
+      this.manualSelectionDefaults = new Map(this.manualSelectionDefaults);
+      return;
+    }
   }
 
   jumpToCandidate(targetId: SelectionTargetId): void {
@@ -474,25 +610,27 @@ class AppState {
 
   async applyNow(): Promise<void> {
     if (this.phase.kind !== "postParse") return;
-    const { fileName, bytes, analysis } = this.phase;
+    const { fileName, analysisSession } = this.phase;
+    const { bytes, analysis } = analysisSession;
     this.residualRiskAcknowledged = false;
-    this.phase = { kind: "redacting", fileName, bytes, analysis };
+    this.phase = { kind: "redacting", fileName, analysisSession };
 
     try {
       const report = await applyRedaction(bytes, analysis, this.selections, {
+        preflightSurfaces: analysisSession.verifySurfaces,
         onRepairing: () => {
-          this.phase = { kind: "repairing", fileName, bytes, analysis };
+          this.phase = { kind: "repairing", fileName, analysisSession };
         },
       });
       const nextPhase = classifyFinalizedReportPhase(report);
       if (nextPhase === "downloadRisk") {
-        this.phase = { kind: "downloadRisk", fileName, report, bytes, analysis };
+        this.phase = { kind: "downloadRisk", fileName, report, analysisSession };
       } else if (nextPhase === "downloadWarning") {
-        this.phase = { kind: "downloadWarning", fileName, report, bytes, analysis };
+        this.phase = { kind: "downloadWarning", fileName, report, analysisSession };
       } else if (nextPhase === "downloadRepaired") {
-        this.phase = { kind: "downloadRepaired", fileName, report, bytes, analysis };
+        this.phase = { kind: "downloadRepaired", fileName, report, analysisSession };
       } else {
-        this.phase = { kind: "downloadReady", fileName, report, bytes, analysis };
+        this.phase = { kind: "downloadReady", fileName, report, analysisSession };
       }
     } catch (err) {
       this.phase = {
@@ -506,7 +644,7 @@ class AppState {
   /**
    * Return to the review panel from any post-redaction outcome state.
    * Preserves the user's selections + manualAdditions so they can adjust
-   * and retry without re-analyzing the file. The bytes and analysis are
+   * and retry without re-analyzing the file. The analysis session is
    * carried in the phase object (see AppPhase) specifically to make this
    * round-trip possible.
    */
@@ -519,9 +657,9 @@ class AppState {
     ) {
       return;
     }
-    const { fileName, bytes, analysis } = this.phase;
+    const { fileName, analysisSession } = this.phase;
     this.residualRiskAcknowledged = false;
-    this.phase = { kind: "postParse", fileName, bytes, analysis };
+    this.phase = { kind: "postParse", fileName, analysisSession };
   }
 
   reviewCandidate(targetId: SelectionTargetId): void {
@@ -533,10 +671,10 @@ class AppState {
     ) {
       return;
     }
-    const { fileName, bytes, analysis } = this.phase;
+    const { fileName, analysisSession } = this.phase;
     this.residualRiskAcknowledged = false;
-    this.phase = { kind: "postParse", fileName, bytes, analysis };
-    if (analysis.selectionTargetById.has(targetId)) {
+    this.phase = { kind: "postParse", fileName, analysisSession };
+    if (analysisSession.analysis.selectionTargetById.has(targetId)) {
       this.jumpToCandidate(targetId);
     }
   }
@@ -546,33 +684,39 @@ class AppState {
   }
 
   canDownloadCurrentReport(): boolean {
+    let policyKind: DownloadPolicyKind;
     switch (this.phase.kind) {
       case "downloadReady":
       case "downloadRepaired":
+        policyKind = "strictClean";
+        break;
       case "downloadWarning":
-        return true;
+        policyKind = "warning";
+        break;
       case "downloadRisk":
-        return this.residualRiskAcknowledged;
+        policyKind = "risk";
+        break;
       default:
         return false;
     }
+    return canDownloadReport(policyKind, this.residualRiskAcknowledged);
   }
 
   reset(): void {
     this.phase = { kind: "idle" };
     this.selections = new Set();
     this.manualAdditions = createManualAdditions();
+    this.manualSelectionDefaults = createManualSelectionDefaults();
     this.focusedCandidate = null;
     this.residualRiskAcknowledged = false;
+    this.policyStatus = null;
+    this.policyImportError = null;
     if (this.focusClearTimer !== null) {
       clearTimeout(this.focusClearTimer);
       this.focusClearTimer = null;
     }
   }
 
-  setSeeds(next: ReadonlyArray<string>): void {
-    this.seeds = [...next];
-  }
 }
 
 /** The one global state instance — import this from every component. */
