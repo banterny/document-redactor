@@ -2,20 +2,18 @@
   Main panel — the drop zone in idle state, and the "file parsed" card
   with stats + verify banner in every later state.
 
+  The post-parse view renders the read-only preview created during
+  analysis. Apply/download still use fresh DOCX loads through the engine,
+  so preview caching cannot bleed into mutation.
+
   What this does NOT do (deliberate v1 scope):
-  - Render the DOCX body visually with click-to-select highlighting.
-    That needs a full WordprocessingML → HTML renderer, which is a
-    separate module-scale effort. For v1 the candidates panel on the
-    right is where the user reviews / selects; the main panel shows
-    file metadata + the verify banner, and after Apply it shows the
-    download affordance.
   - Drag-hover visual state. The drop zone uses `:hover` and accepts
     drop events; a distinct hover-while-dragging style is a nice-to-
     have that can come later.
 -->
 <script lang="ts">
-  import { loadDocxZip } from "../docx/load.js";
-  import { renderDocumentBody, type RenderedDocument } from "../docx/render-body.js";
+  import { countSelectionTargets } from "../selection-targets.js";
+  import { redactedFilename } from "./download-policy.js";
   import RenderedBody from "./RenderedBody.svelte";
   import { appState, type AppPhase } from "./state.svelte.ts";
 
@@ -36,13 +34,6 @@
   function formatHash(hash: string): string {
     if (hash.length < 16) return hash;
     return `${hash.slice(0, 4)} ${hash.slice(4, 8)} · · · ${hash.slice(-8, -4)} ${hash.slice(-4)}`;
-  }
-
-  /** Mirror the D8.3 output filename rule: {stem}.redacted.{ext}. */
-  function redactedFilename(original: string): string {
-    const dot = original.lastIndexOf(".");
-    if (dot === -1) return `${original}.redacted`;
-    return `${original.slice(0, dot)}.redacted${original.slice(dot)}`;
   }
 
   function onDrop(e: DragEvent): void {
@@ -86,23 +77,11 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = redactedFilename(phase.fileName);
+    a.download = redactedFilename(phase.fileName, {
+      unverified: phase.kind === "downloadRisk",
+    });
     a.click();
     URL.revokeObjectURL(url);
-  }
-
-  const renderedDocCache = new WeakMap<Uint8Array, Promise<RenderedDocument>>();
-
-  function loadRenderedDoc(bytes: Uint8Array): Promise<RenderedDocument> {
-    const cached = renderedDocCache.get(bytes);
-    if (cached !== undefined) return cached;
-
-    const promise = (async () => {
-      const zip = await loadDocxZip(bytes);
-      return await renderDocumentBody(zip);
-    })();
-    renderedDocCache.set(bytes, promise);
-    return promise;
   }
 
   function warningReasonLabel(reason: string): string {
@@ -185,13 +164,14 @@
         <div class="file-name">{phase.fileName}</div>
         <div class="file-bar">
           <span class="pill ok">Parsed</span>
-          <span class="pill">{formatBytes(phase.analysis.fileStats.sizeBytes)}</span>
-          <span class="pill">{phase.analysis.fileStats.scopeCount} scopes walked</span>
           <span class="pill">
-            {phase.analysis.entityGroups.reduce(
-              (sum, g) => sum + g.literals.length + g.defined.length,
-              0,
-            ) + phase.analysis.piiCandidates.length} candidates found
+            {formatBytes(phase.analysisSession.analysis.fileStats.sizeBytes)}
+          </span>
+          <span class="pill">
+            {phase.analysisSession.analysis.fileStats.scopeCount} scopes walked
+          </span>
+          <span class="pill">
+            {countSelectionTargets(phase.analysisSession.analysis.selectionTargets)} candidates found
           </span>
         </div>
       </div>
@@ -207,13 +187,13 @@
       <span class="hash">offline · file://</span>
     </div>
 
-    {#await loadRenderedDoc(phase.bytes)}
+    {#await phase.analysisSession.renderedDoc}
       <div class="parse-progress">
         <div class="spinner" aria-hidden="true"></div>
         <p>Rendering preview…</p>
       </div>
     {:then renderedDoc}
-      <RenderedBody {renderedDoc} analysis={phase.analysis} />
+      <RenderedBody {renderedDoc} analysis={phase.analysisSession.analysis} />
     {:catch err}
       <div class="error-card">
         <h2>Couldn't render this document</h2>
@@ -444,7 +424,8 @@
         </p>
         <div class="risk-toast">
           Verification found surviving strings. Review them, or acknowledge the
-          residual risk to download anyway.
+          residual risk to download
+          <code>{redactedFilename(phase.fileName, { unverified: true })}</code>.
         </div>
         <ul class="survival-list">
           {#each phase.report.verify.survived as s (s.targetId + s.scope.path + s.surface)}

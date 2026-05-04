@@ -14,8 +14,17 @@ const ADVERSARIAL_INPUTS: readonly string[] = [
   " ".repeat(10_000),
 ];
 
+const SMOKE_ADVERSARIAL_INPUTS: readonly string[] = [
+  "a".repeat(1_000),
+  "1".repeat(1_000),
+  "a-".repeat(500),
+  " ".repeat(1_000),
+];
+
 const WARMUP_RUNS = 25;
 const MEASURED_RUNS = 200;
+const SMOKE_WARMUP_RUNS = 3;
+const SMOKE_MEASURED_RUNS = 5;
 const FUNCTION_WARMUP_RUNS = 20;
 const FUNCTION_MEASURED_RUNS = 100;
 
@@ -89,6 +98,21 @@ process.stdout.write(String(elapsed / ${MEASURED_RUNS}));
   );
 }
 
+function benchmarkRegexSmoke(pattern: RegExp, input: string): number {
+  for (let i = 0; i < SMOKE_WARMUP_RUNS; i++) scanRegex(pattern, input);
+  const start = performance.now();
+  for (let i = 0; i < SMOKE_MEASURED_RUNS; i++) scanRegex(pattern, input);
+  return (performance.now() - start) / SMOKE_MEASURED_RUNS;
+}
+
+function scanRegex(pattern: RegExp, input: string): void {
+  pattern.lastIndex = 0;
+  let count = 0;
+  while (pattern.exec(input) !== null && count < 1000) {
+    count++;
+  }
+}
+
 function adversarialInputExpr(input: string): string {
   if (input === "a".repeat(10_000)) return `"a".repeat(10_000)`;
   if (input === "1".repeat(10_000)) return `"1".repeat(10_000)`;
@@ -111,47 +135,51 @@ function benchmarkOperation(fn: () => unknown): number {
 }
 
 /**
- * Skip this suite in CI because the per-test `node -e` subprocess spawn
- * is catastrophically slow on GitHub Actions runners (first observed
- * v1.1.0 release run, 2.5h hang on Test step; local: ~14s).
+ * The deep suite uses per-test `node -e` subprocess spawning so each regex
+ * benchmark starts with a clean engine state. That is intentionally local-
+ * first because it was too slow for GitHub Actions in v1.1.0.
  *
- * Local `bun run test` still runs the full fuzz — that is the real gate
- * before publishing. A future phase should move this suite to a
- * scheduled nightly CI job with a dedicated runner, or rewrite the
- * benchmark to stay in-process (no subprocess spawn) so CI can handle
- * it.
+ * CI runs `REDOS_GUARD_MODE=smoke`, which keeps the check in-process and
+ * short while still exercising every registered regex on adversarial input.
+ * Local `bun run test` continues to run the deep fuzz by default.
  */
+const guardMode = process.env.REDOS_GUARD_MODE === "smoke" ? "smoke" : "deep";
 const skipInCi =
-  process.env.CI === "true" || process.env.SKIP_REDOS_FUZZ === "1";
+  (process.env.CI === "true" && process.env.REDOS_GUARD_MODE === undefined) ||
+  process.env.SKIP_REDOS_FUZZ === "1";
 
 describe.skipIf(skipInCi)("ReDoS guard", () => {
+  const regexInputs =
+    guardMode === "smoke" ? SMOKE_ADVERSARIAL_INPUTS : ADVERSARIAL_INPUTS;
+
   for (const rule of ALL_REGEX_RULES) {
-    for (const input of ADVERSARIAL_INPUTS) {
+    for (const input of regexInputs) {
       it(`${rule.id} returns within 50ms on ${input.length}-char adversarial input`, () => {
-        const elapsed = benchmarkRegex(
-          rule.pattern.source,
-          rule.pattern.flags,
-          input,
-        );
+        const elapsed =
+          guardMode === "smoke"
+            ? benchmarkRegexSmoke(rule.pattern, input)
+            : benchmarkRegex(rule.pattern.source, rule.pattern.flags, input);
         expect(elapsed).toBeLessThan(50);
       });
     }
   }
 
-  for (const parser of ALL_STRUCTURAL_PARSERS) {
-    it(`${parser.id} returns within 100ms on structural adversarial input`, () => {
-      const input = PARSER_ADVERSARIAL_INPUTS[parser.id]!;
-      const elapsed = benchmarkOperation(() => parser.parse(input));
-      expect(elapsed).toBeLessThan(100);
-    });
-  }
+  if (guardMode === "deep") {
+    for (const parser of ALL_STRUCTURAL_PARSERS) {
+      it(`${parser.id} returns within 100ms on structural adversarial input`, () => {
+        const input = PARSER_ADVERSARIAL_INPUTS[parser.id]!;
+        const elapsed = benchmarkOperation(() => parser.parse(input));
+        expect(elapsed).toBeLessThan(100);
+      });
+    }
 
-  for (const heuristic of ALL_HEURISTICS) {
-    it(`${heuristic.id} returns within 100ms on heuristic adversarial input`, () => {
-      const input = HEURISTIC_ADVERSARIAL_INPUTS[heuristic.id]!;
-      const context = HEURISTIC_CONTEXTS[heuristic.id]!;
-      const elapsed = benchmarkOperation(() => heuristic.detect(input, context));
-      expect(elapsed).toBeLessThan(100);
-    });
+    for (const heuristic of ALL_HEURISTICS) {
+      it(`${heuristic.id} returns within 100ms on heuristic adversarial input`, () => {
+        const input = HEURISTIC_ADVERSARIAL_INPUTS[heuristic.id]!;
+        const context = HEURISTIC_CONTEXTS[heuristic.id]!;
+        const elapsed = benchmarkOperation(() => heuristic.detect(input, context));
+        expect(elapsed).toBeLessThan(100);
+      });
+    }
   }
 });

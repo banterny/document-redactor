@@ -5,7 +5,7 @@ import {
   buildResolvedTargetsFromStrings,
   buildSelectionTargetId,
 } from "../selection-targets.js";
-import { finalizeRedaction, isShippable } from "./finalize.js";
+import { finalizeRedaction, isStrictlyCleanReport } from "./finalize.js";
 
 const W_NS = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
 
@@ -80,7 +80,7 @@ describe("finalizeRedaction — happy path", () => {
 });
 
 describe("finalizeRedaction — leak path (verify fails)", () => {
-  it("still produces a report when verify fails — isShippable handles the policy", async () => {
+  it("still produces a report when verify fails — strict clean gate handles the policy", async () => {
     // Seed a redaction that will leave something behind: target the
     // upper-case form while the text has mixed case. The redactor is
     // case-sensitive so "abc" survives.
@@ -94,7 +94,7 @@ describe("finalizeRedaction — leak path (verify fails)", () => {
     // then pass the complete list to the verifier via the sanity flag.
   });
 
-  it("reports isShippable=false when verify fails (simulated)", async () => {
+  it("reports isStrictlyCleanReport=false when verify fails (simulated)", async () => {
     // Construct a "report" manually by finalizing with one target, then
     // inspecting the shape. A real leak requires the verifier to trip,
     // which we cover in the integration test against the worst-case
@@ -104,7 +104,7 @@ describe("finalizeRedaction — leak path (verify fails)", () => {
       targets: buildResolvedTargetsFromStrings(["missing"]),
     });
     expect(result.verify.isClean).toBe(true);
-    expect(isShippable(result)).toBe(true);
+    expect(isStrictlyCleanReport(result)).toBe(true);
   });
 });
 
@@ -128,7 +128,7 @@ describe("finalizeRedaction — word count insanity", () => {
     expect(result.wordCount.sane).toBe(true);
   });
 
-  it("isShippable=true when sane, false when not (via threshold override)", async () => {
+  it("isStrictlyCleanReport=true when sane, false when not (via threshold override)", async () => {
     const zip = await syntheticDocx("one two three four five six seven eight");
     // With a threshold of 0%, ANY drop is unshippable. Since there is no
     // drop in this test, it's still shippable.
@@ -137,7 +137,7 @@ describe("finalizeRedaction — word count insanity", () => {
       wordCountThresholdPct: 0,
     });
     expect(r1.wordCount.sane).toBe(true);
-    expect(isShippable(r1)).toBe(true);
+    expect(isStrictlyCleanReport(r1)).toBe(true);
   });
 });
 
@@ -164,13 +164,13 @@ describe("finalizeRedaction — options", () => {
   });
 });
 
-describe("isShippable", () => {
+describe("isStrictlyCleanReport", () => {
   it("returns true when verify is clean AND word-count is sane", async () => {
     const zip = await syntheticDocx("hello world");
     const result = await finalizeRedaction(zip, {
       targets: buildResolvedTargetsFromStrings([]),
     });
-    expect(isShippable(result)).toBe(true);
+    expect(isStrictlyCleanReport(result)).toBe(true);
   });
 
   it("returns false when verify is NOT clean (crafted report)", async () => {
@@ -195,7 +195,7 @@ describe("isShippable", () => {
         ],
       },
     };
-    expect(isShippable(broken)).toBe(false);
+    expect(isStrictlyCleanReport(broken)).toBe(false);
   });
 
   it("returns false when word-count is NOT sane (crafted report)", async () => {
@@ -211,6 +211,6 @@ describe("isShippable", () => {
         droppedPct: 99,
       },
     };
-    expect(isShippable(broken)).toBe(false);
+    expect(isStrictlyCleanReport(broken)).toBe(false);
   });
 });

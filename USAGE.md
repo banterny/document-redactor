@@ -27,7 +27,7 @@ A step-by-step walkthrough for running `document-redactor` on a real file. If yo
 
 Go to the [latest release](https://github.com/kipeum86/document-redactor/releases/latest) and download **both** files:
 
-- **`document-redactor.html`** — the tool itself (~247 KB, single HTML file)
+- **`document-redactor.html`** — the tool itself (~262 KB / 268,571 bytes, single HTML file)
 - **`document-redactor.html.sha256`** — the integrity sidecar (89 bytes)
 
 If you received the files via Kakao, email, or USB from someone else, that's fine — the verification step in the next section is exactly designed for this case. You don't need to trust the sender; you need to verify the hash.
@@ -108,7 +108,7 @@ The tab title reads `document-redactor · offline DOCX redactor`. The top-right 
 
 ### Step 4.1 — Drop your file
 
-Drag a `.docx` onto the drop zone, or click "choose a file" and pick one. The tool loads the file, unzips it in memory, and walks every text-bearing scope (body, headers, footers, footnotes, endnotes, comments). Typical contracts parse in under a second.
+Drag a `.docx` onto the drop zone, or click "choose a file" and pick one. The tool accepts input files up to **50 MB**, caps any single decompressed ZIP entry at **20 MB**, unzips the file in memory, and walks every text-bearing scope (body, headers, footers, footnotes, endnotes, comments). Typical contracts parse in under a second.
 
 > **Nothing leaves your machine.** The file lives only in a JavaScript variable inside your browser tab. There is no server to upload to, no disk cache, no telemetry.
 
@@ -128,6 +128,8 @@ The right panel groups candidates into **8 category sections** plus a catch-all.
 
 Each row has a **↓ jump** button. Click it to scroll the document to the first occurrence of that candidate, with a brief pulse animation to draw your eye.
 
+Use **Export policy** to save the current manual additions and their selected/unchecked defaults as a local JSON file. Use **Import policy** to apply that JSON to another document; policy files contain only strings/categories/defaults, not DOCX content.
+
 See [§ 5](#5-the-candidate-panel--8-category-sections--catch-all) for the full section breakdown.
 
 ### Step 4.4 — Press Apply
@@ -141,8 +143,9 @@ The tool runs the full pipeline:
 3. **Flatten fields** — unwraps hyperlinks, removes `<w:fldChar>` / `<w:instrText>` (so `HYPERLINK "mailto:..."` instructions can't leak)
 4. **Redact** — replaces every selected string with `[REDACTED]` across all scopes
 5. **Scrub metadata** — clears author, lastModifiedBy, company, title in `docProps/*`
-6. **Round-trip verify** — re-parses the output and confirms zero surviving sensitive strings (including URLs in `word/_rels/*.rels`)
-7. **Word-count sanity** — compares before/after word counts; ≥30% drop triggers a warning
+6. **Clean relationship targets** — strips external `http://` / `https://` targets in `.rels` files and repairs selected literals found in relationship targets
+7. **Round-trip verify** — re-parses the output and confirms zero surviving sensitive strings, including relationship targets in `word/_rels/*.rels`
+8. **Word-count sanity** — compares before/after word counts; ≥30% drop triggers a warning
 
 One of four post-Apply outcomes appears. See [§ 8](#8-the-four-post-apply-outcomes).
 
@@ -194,9 +197,11 @@ Korean dates (`2024년 3월 15일`, `2024.3.15`), ISO 8601 (`2024-03-15`, with o
 
 Korean corporations (`주식회사 ABC`, `(주)ABC`, `㈜ABC`), other legal forms (`유한회사`, `사단법인`), executive titles with names (`대표이사 김철수`), honorifics (`김철수 님`), English corporations (`ABC Corp.`, `XYZ Inc.`), international legal forms (`ABC GmbH`, `XYZ S.A.`, `DEF Pty Ltd`), English titles (`Mr. Smith`, `Dr. Jones`, `CEO John Smith`), **label-driven address capture** (`주소: 서울특별시 강남구 논현로 568` / `Address: 12345 Main St, ...`), and **label-driven phone capture** (`전화: 02-3446-3727` / `Phone Number: +82-2-3446-3727`). **Checked by default.**
 
-### 7. 법원 / 사건 (Legal)
+### 7. 사건번호 / 도켓 (Case / docket)
 
-Korean case numbers (`2024가합12345`), court names (`서울중앙지방법원`, `대법원`), statute references (`민법 제750조`, `제15조 제2항`), English case citations (`123 F.3d 456`), statute references (`17 U.S.C. § 101`), and legal context scanners. **Checked by default.**
+Case and docket identifiers such as Korean case numbers (`2024가합12345`), `Case No.: 24-CV-1234`, `Docket No.: 1:24-cv-00001`, and Korean `사건번호:` labels. **Unchecked by default** — opt in when the reference itself should be hidden.
+
+Contract article/section references (`Section 10.1`, `제15조 제2항`), court names (`서울중앙지방법원`, `대법원`), precedent citations (`123 F.3d 456`), and public statute citations (`민법 제750조`, `17 U.S.C. § 101`) are preserved by default because they usually carry structure, venue context, or public legal authority, not private identity.
 
 ### 8. 추측 (Low-confidence heuristics)
 
@@ -358,7 +363,7 @@ Common causes:
 
 The engine is text-based and works on any DOCX — it doesn't care whether the file is a contract, an opinion, a brief, a memo, or internal notes. For non-contract use:
 
-- **The 8 category rules still fire automatically.** Addresses, phones, emails, IDs, amounts, dates, court names, statute references — all picked up regardless of document type.
+- **The 8 category sections still populate from automatic detection.** Addresses, phones, emails, IDs, amounts, and dates are checked by default. Case and docket identifiers may appear for review but remain unchecked by default; contract sections, court names, precedent citations, and public statute citations are preserved unless you add them manually.
 - **The 정의된 대리어 section will usually be empty** on non-contract docs. The D9 parser looks for `"X" means Y` / `("Y"이라 함은)` patterns, which are almost exclusive to contracts.
 - **Use the 기타 section heavily** for domain-specific terms. A judgment might want case numbers, judge names, or party names; a patent spec might want inventor names or assignee; a memo might want internal codewords.
 - **Redacted output opens in Word the same way** regardless of source type.
@@ -459,9 +464,9 @@ Typical timings on a 50 KB contract:
 
 Total under 2 seconds end to end. If it's genuinely slow (>10 seconds), the most likely cause is a very large DOCX with thousands of paragraphs. Open DevTools Performance tab to profile. File a bug with the fixture size.
 
-### "I dropped a 50 MB file and my browser hung"
+### "I dropped a large file and it was rejected"
 
-The tool has no explicit size cap in v1.x, but browsers choke on multi-hundred-MB files. Typical legal documents are <5 MB. For unusually large files (scanned pages converted to DOCX with embedded images), the OCR caveat from [§ 13](#13-what-this-tool-does-not-do) applies — the tool cannot redact text inside images regardless, so there's little benefit to running it on an image-heavy file.
+The tool rejects input files larger than **50 MB** and any single decompressed ZIP entry larger than **20 MB**. Typical legal documents are <5 MB. For unusually large files (scanned pages converted to DOCX with embedded images), the OCR caveat from [§ 13](#13-what-this-tool-does-not-do) applies — the tool cannot redact text inside images regardless, so there's little benefit to running it on an image-heavy file.
 
 ### "The mobile layout looks cramped"
 
@@ -498,12 +503,12 @@ These are v1.1 limitations. Some are planned for future paranoid-tier work; othe
 - **No SmartArt or WordArt text.** These are special OOXML constructs the scope walker skips.
 - **No embedded Excel / PowerPoint objects.** OLE-embedded objects are treated as opaque blobs. Regular Word tables ARE fully handled.
 - **No full `<w:sdt>` content control handling.** Text inside structured document tags is walked as text but the form semantics are not preserved.
-- **No macros or VBA.** `.docm` files are not supported. Convert to `.docx` first.
+- **No macros, VBA, or encrypted/password-protected packages.** `.docm` and password-protected files are rejected. Convert to a plain `.docx` first.
 - **No undo / redo.** Each Apply is one-shot; use **검토로 돌아가기** before Apply or re-drop the file.
-- **No persistent state between sessions.** Close the tab, reopen, start fresh. (Manual additions persist ONLY within the same session.)
+- **No automatic persistent state between sessions.** Close the tab, reopen, start fresh unless you explicitly export/import a local policy JSON.
 - **No batch processing.** One file at a time.
-- **No policy files / team sharing.** No import/export of selection sets across users.
-- **No `word/_rels/*.rels` Target rewriting.** Phase 4 verifier DETECTS surviving URLs in rels files and blocks download, but does not actively overwrite them. The user resolves it via the catch-all or by cleaning the source document.
+- **No cloud policy sync or accounts.** Policy import/export is a local JSON file workflow only.
+- **Limited `word/_rels/*.rels` Target rewriting.** The tool strips external `http://` / `https://` relationship targets and repairs selected literals found in relationship targets, then verifies that sensitive strings do not survive. It is not a general-purpose relationship sanitizer for every possible non-HTTP or opaque target.
 - **No image EXIF scrubbing.** Images inside the DOCX keep their original metadata (GPS, camera info).
 - **No revision-ID scrubbing.** `w:rsidR` identifiers stay. Usually harmless, but in theory allow author correlation across documents.
 - **No hidden text (`<w:vanish>`) surfacing.** Hidden text is a separate leak vector; Paranoid-tier work will address it.

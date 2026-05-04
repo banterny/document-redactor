@@ -4,11 +4,11 @@
   The level dropdown is disabled in v1 (Standard only). Paranoid /
   Conservative branches will come with their own dedicated Lane A/D work.
 
-  The entity seed editor was removed in Phase 3.2 because Phase 1's
+  The entity seed workflow was removed in Phase 3.2 because Phase 1's
   structural.party-declaration parser + entities regex rules catch the
   main parties automatically, and Phase 2's per-category "+ 추가"
-  affordance covers the missed-variant case. Programmatic seed control
-  via `appState.setSeeds()` still exists for future use.
+  affordance covers the missed-variant case. Propagation remains an
+  internal, test-covered engine path rather than a public UI control.
 -->
 <script lang="ts">
 </script>

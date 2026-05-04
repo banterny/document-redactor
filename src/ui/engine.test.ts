@@ -15,6 +15,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import JSZip from "jszip";
 
 import {
+  analyzeDocumentSession,
   analyzeZip,
   applyRedaction,
   defaultSelections,
@@ -35,6 +36,8 @@ const FIXTURE = path.join(
   "tests/fixtures/bilingual_nda_worst_case.docx",
 );
 const W_NS = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
+const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
+const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
 
 function bodyWith(text: string): string {
   return `<w:document ${W_NS}><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`;
@@ -46,6 +49,8 @@ function bodyWithHyperlink(text: string): string {
 
 async function syntheticDocx(parts: Record<string, string>): Promise<Uint8Array> {
   const zip = new JSZip();
+  zip.file("[Content_Types].xml", CONTENT_TYPES);
+  zip.file("_rels/.rels", ROOT_RELS);
   for (const [filePath, content] of Object.entries(parts)) {
     zip.file(filePath, content);
   }
@@ -146,7 +151,7 @@ function withSelectionTargets(
                 : candidate.category === "heuristics"
                   ? "heuristics"
                   : "entities",
-        defaultSelected: candidate.confidence === 1.0,
+        defaultSelected: candidate.category !== "legal" && candidate.confidence === 1.0,
         ruleId: candidate.ruleId,
       }),
     ),
@@ -189,6 +194,19 @@ describe("analyzeZip", () => {
     expect(analysis.fileStats.scopeCount).toBeGreaterThanOrEqual(5);
   });
 
+  it("builds a read-only analysis session for preview and preflight reuse", async () => {
+    const session = await analyzeDocumentSession(bytes, SEEDS);
+
+    expect(session.bytes).toBe(bytes);
+    expect(session.analysis.entityGroups.length).toBe(SEEDS.length);
+    expect(session.scopedText.length).toBe(session.analysis.fileStats.scopeCount);
+    const renderedDoc = await session.renderedDoc;
+    expect(renderedDoc.scopes.length).toBeGreaterThan(0);
+    expect(session.verifySurfaces.scopesChecked).toBeGreaterThanOrEqual(
+      session.analysis.fileStats.scopeCount,
+    );
+  });
+
   it("keeps the Analysis shape unchanged in Phase 3", async () => {
     const analysis = await analyzeZip(bytes, SEEDS);
 
@@ -198,6 +216,7 @@ describe("analyzeZip", () => {
         "entityGroups",
         "fileStats",
         "literalCandidates",
+        "manualMatchCorpus",
         "nonPiiCandidates",
         "piiCandidates",
         "selectionTargetById",
@@ -254,6 +273,8 @@ describe("analyzeZip", () => {
 
   it("surfaces Korean landline candidates without throwing", async () => {
     const zip = new JSZip();
+    zip.file("[Content_Types].xml", CONTENT_TYPES);
+    zip.file("_rels/.rels", ROOT_RELS);
     zip.file("word/document.xml", bodyWith("대표번호 02-3446-3727"));
 
     const bytes = await zip.generateAsync({ type: "uint8array" });
@@ -409,7 +430,7 @@ describe("defaultSelections — D9 policy", () => {
     expect(selections.has(buildSelectionTargetId("auto", "user@example.com"))).toBe(true);
   });
 
-  it("includes non-heuristic nonPii candidates (confidence === 1.0) across all categories", () => {
+  it("includes high-confidence nonPii candidates by default except litigation refs", () => {
     const analysis = withSelectionTargets({
       entityGroups: [],
       piiCandidates: [],
@@ -442,9 +463,9 @@ describe("defaultSelections — D9 policy", () => {
           scopes: [],
         },
         {
-          text: "대법원",
-          selectionTargetId: buildSelectionTargetId("auto", "대법원"),
-          ruleId: "legal.ko-court-name",
+          text: "2024가합12345",
+          selectionTargetId: buildSelectionTargetId("auto", "2024가합12345"),
+          ruleId: "legal.ko-case-number",
           category: "legal" as const,
           confidence: 1.0,
           count: 1,
@@ -463,7 +484,12 @@ describe("defaultSelections — D9 policy", () => {
       fileStats: { sizeBytes: 0, scopeCount: 0 },
     });
     const selections = defaultSelections(analysis);
-    expect(selections.size).toBe(5);
+    expect(selections.has(buildSelectionTargetId("auto", "50,000원"))).toBe(true);
+    expect(selections.has(buildSelectionTargetId("auto", "2024년 3월 15일"))).toBe(true);
+    expect(selections.has(buildSelectionTargetId("auto", "ABC 주식회사"))).toBe(true);
+    expect(selections.has(buildSelectionTargetId("auto", "NDA"))).toBe(true);
+    expect(selections.has(buildSelectionTargetId("auto", "2024가합12345"))).toBe(false);
+    expect(selections.size).toBe(4);
   });
 
   it("handles empty analysis by returning empty set", () => {

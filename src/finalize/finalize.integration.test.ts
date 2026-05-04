@@ -10,7 +10,7 @@
  *     → Lane A: regex sweep for PII
  *     → Lane C: variant propagation for entity seeds (D9 defaults)
  *     → Lane D: finalize = redact + verify + word-count + sha256 + bytes
- *     → assert isShippable
+ *     → assert isStrictlyCleanReport
  *     → reload bytes → re-verify → re-assert clean
  *
  * The last step is the cross-check: the SHA-256 we emit should be the
@@ -35,7 +35,7 @@ import {
   buildRedactionTargets,
   propagateVariants,
 } from "../propagation/propagate.js";
-import { finalizeRedaction, isShippable } from "./finalize.js";
+import { finalizeRedaction, isStrictlyCleanReport } from "./finalize.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -103,7 +103,7 @@ describe("Lane A + C + D end-to-end against worst-case bilingual fixture", () =>
     expect(report.verify.isClean).toBe(true);
     expect(report.verify.survived).toEqual([]);
     expect(report.wordCount.sane).toBe(true);
-    expect(isShippable(report)).toBe(true);
+    expect(isStrictlyCleanReport(report)).toBe(true);
   });
 
   it("produces a non-trivial SHA-256 hash of the output bytes", () => {

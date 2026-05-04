@@ -256,6 +256,17 @@ describe("ship gate — manual candidate state flow", () => {
     expect(appState.manualAdditions.get("financial")?.has("USD 1,000,000")).toBe(true);
   });
 
+  it("manual selection defaults persist across re-analysis", async () => {
+    await appState.loadFile(loadFixtureFile("bilingual_nda_worst_case.docx"));
+    const targetId = buildSelectionTargetId("manual", "USD 1,000,000");
+    appState.addManualCandidate("financial", "USD 1,000,000");
+    appState.toggleSelection(targetId);
+    await appState.loadFile(loadFixtureFile("bilingual_nda_worst_case.docx"));
+
+    expect(appState.selections.has(targetId)).toBe(false);
+    expect(appState.manualAdditions.get("financial")?.has("USD 1,000,000")).toBe(true);
+  });
+
   it("reset clears both selections and manualAdditions", async () => {
     await appState.loadFile(loadFixtureFile("bilingual_nda_worst_case.docx"));
 
@@ -263,6 +274,71 @@ describe("ship gate — manual candidate state flow", () => {
     appState.reset();
 
     expect(appState.selections.size).toBe(0);
+    expect(appState.manualAdditions.get("financial")?.size ?? 0).toBe(0);
+  });
+
+  it("exports manual additions with their current selection defaults", async () => {
+    await appState.loadFile(loadFixtureFile("bilingual_nda_worst_case.docx"));
+
+    appState.addManualCandidate("financial", "USD 1,000,000");
+    appState.toggleSelection(buildSelectionTargetId("manual", "USD 1,000,000"));
+
+    expect(JSON.parse(appState.exportPolicyJson())).toMatchObject({
+      schemaVersion: 1,
+      entries: [
+        {
+          text: "USD 1,000,000",
+          category: "financial",
+          defaultSelected: false,
+        },
+      ],
+    });
+  });
+
+  it("imports policy entries into manual additions and selections", async () => {
+    await appState.loadFile(loadFixtureFile("bilingual_nda_worst_case.docx"));
+
+    appState.importPolicyText(
+      JSON.stringify({
+        schemaVersion: 1,
+        createdAt: "2026-04-25T00:00:00.000Z",
+        name: "Imported",
+        entries: [
+          {
+            text: "USD 1,000,000",
+            category: "financial",
+            defaultSelected: true,
+          },
+          {
+            text: "Manual Secret Alpha",
+            category: "other",
+            defaultSelected: false,
+          },
+        ],
+      }),
+    );
+
+    expect(appState.policyImportError).toBeNull();
+    expect(appState.policyStatus).toBe("Imported 2 policy item(s).");
+    expect(appState.manualAdditions.get("financial")?.has("USD 1,000,000")).toBe(
+      true,
+    );
+    expect(appState.manualAdditions.get("other")?.has("Manual Secret Alpha")).toBe(
+      true,
+    );
+    expect(
+      appState.selections.has(buildSelectionTargetId("manual", "USD 1,000,000")),
+    ).toBe(true);
+    expect(
+      appState.selections.has(buildSelectionTargetId("manual", "Manual Secret Alpha")),
+    ).toBe(false);
+  });
+
+  it("reports invalid policy JSON without changing manual additions", async () => {
+    await appState.loadFile(loadFixtureFile("bilingual_nda_worst_case.docx"));
+
+    expect(appState.importPolicyText("{")).toBeNull();
+    expect(appState.policyImportError).toBe("Policy file is not valid JSON.");
     expect(appState.manualAdditions.get("financial")?.size ?? 0).toBe(0);
   });
 });
@@ -382,13 +458,12 @@ describe("ship gate — verification recovery flow", () => {
     if (appState.phase.kind !== "postParse") {
       throw new Error("expected postParse baseline");
     }
-    const { fileName, bytes, analysis } = appState.phase;
+    const { fileName, analysisSession } = appState.phase;
     const report = makeReport({ verifyIsClean: false, wordCountSane: true });
     appState.phase = {
       kind: "downloadRisk",
       fileName,
-      bytes,
-      analysis,
+      analysisSession,
       report,
     };
 
@@ -403,13 +478,12 @@ describe("ship gate — verification recovery flow", () => {
     if (appState.phase.kind !== "postParse") {
       throw new Error("expected postParse baseline");
     }
-    const { fileName, bytes, analysis } = appState.phase;
+    const { fileName, analysisSession } = appState.phase;
     const report = makeReport({ verifyIsClean: false, wordCountSane: true });
     appState.phase = {
       kind: "downloadRisk",
       fileName,
-      bytes,
-      analysis,
+      analysisSession,
       report,
     };
 
@@ -422,13 +496,12 @@ describe("ship gate — verification recovery flow", () => {
     if (appState.phase.kind !== "postParse") {
       throw new Error("expected postParse baseline");
     }
-    const { fileName, bytes, analysis } = appState.phase;
+    const { fileName, analysisSession } = appState.phase;
     const report = makeReport({ verifyIsClean: false, wordCountSane: true });
     appState.phase = {
       kind: "downloadRisk",
       fileName,
-      bytes,
-      analysis,
+      analysisSession,
       report,
     };
 
@@ -444,13 +517,12 @@ describe("ship gate — verification recovery flow", () => {
     if (appState.phase.kind !== "postParse") {
       throw new Error("expected postParse baseline");
     }
-    const { fileName, bytes, analysis } = appState.phase;
+    const { fileName, analysisSession } = appState.phase;
     const report = makeReport({ verifyIsClean: true, wordCountSane: false });
     appState.phase = {
       kind: "downloadWarning",
       fileName,
-      bytes,
-      analysis,
+      analysisSession,
       report,
     };
 
@@ -465,13 +537,12 @@ describe("ship gate — verification recovery flow", () => {
     if (appState.phase.kind !== "postParse") {
       throw new Error("expected postParse baseline");
     }
-    const { fileName, bytes, analysis } = appState.phase;
+    const { fileName, analysisSession } = appState.phase;
     const report = makeReport({ verifyIsClean: true, wordCountSane: false });
     appState.phase = {
       kind: "downloadWarning",
       fileName,
-      bytes,
-      analysis,
+      analysisSession,
       report,
     };
 

@@ -1,17 +1,24 @@
 import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
 
+import { loadDocxZip } from "../docx/load.js";
+import { collectVerifySurfaces } from "../docx/verify-surfaces.js";
 import { buildResolvedTargetsFromStrings } from "../selection-targets.js";
 import {
   applyRelsRepairsToZip,
   buildPreflightExpansionPlan,
+  buildPreflightExpansionPlanFromSurfaces,
 } from "./preflight-expansion.js";
 import type { ResolvedRedactionTarget } from "../selection-targets.js";
 
 const W_NS = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
+const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
+const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
 
 async function syntheticDocx(parts: Record<string, string>): Promise<Uint8Array> {
   const zip = new JSZip();
+  zip.file("[Content_Types].xml", CONTENT_TYPES);
+  zip.file("_rels/.rels", ROOT_RELS);
   for (const [path, content] of Object.entries(parts)) {
     zip.file(path, content);
   }
@@ -88,6 +95,21 @@ describe("preflight-expansion", () => {
     });
   });
 
+  it("can build the same plan from precomputed verify surfaces", async () => {
+    const email = "contact@pearlabyss.com";
+    const bytes = await syntheticDocx({
+      "word/document.xml": bodyWith("[REDACTED]"),
+      "word/_rels/document.xml.rels": `<?xml version="1.0"?><Relationships xmlns="x"><Relationship Id="rId5" Type="hyperlink" Target="mailto:${email}" TargetMode="External"/></Relationships>`,
+    });
+    const targets = buildResolvedTargetsFromStrings([email]);
+    const zip = await loadDocxZip(bytes);
+    const surfaces = await collectVerifySurfaces(zip);
+
+    await expect(buildPreflightExpansionPlan(bytes, targets)).resolves.toEqual(
+      buildPreflightExpansionPlanFromSurfaces(surfaces, targets),
+    );
+  });
+
   it("records field-surface matches for selected targets without inventing new ones", async () => {
     const selected = "contact@pearlabyss.com";
     const unselected = "legal@sunrise.com";
@@ -138,6 +160,7 @@ describe("preflight-expansion", () => {
   it("tracks mixed non-body and rels touches in the preflight summary", async () => {
     const email = "contact@pearlabyss.com";
     const bytes = await syntheticDocx({
+      "word/document.xml": bodyWith("[REDACTED]"),
       "word/header1.xml": `<w:hdr ${W_NS}><w:p><w:fldSimple w:instr=" HYPERLINK &quot;mailto:${email}&quot; "><w:r><w:t>${email}</w:t></w:r></w:fldSimple></w:p></w:hdr>`,
       "word/_rels/header1.xml.rels": `<?xml version="1.0"?><Relationships xmlns="x"><Relationship Id="rId1" Type="hyperlink" Target="mailto:${email}" TargetMode="External"/></Relationships>`,
     });
