@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { Scope } from "./docx/types.js";
 import {
+  assertNoSelectionTargetIdCollisions,
+  buildManualSelectionTarget,
   buildSelectionTargets,
+  countSelectionTargets,
+  findOriginalLiteralVariants,
   indexSelectionTargets,
   resolveSelectedTargets,
 } from "./selection-targets.js";
@@ -50,6 +54,23 @@ describe("selection-targets", () => {
       "word/document.xml",
       "word/header1.xml",
     ]);
+    expect(countSelectionTargets(targets)).toBe(1);
+  });
+
+  it("preserves occurrence confidence for UI provenance", () => {
+    const targets = buildSelectionTargets([
+      {
+        scope: scope("body", "word/document.xml"),
+        text: "Project Falcon",
+        normalizedText: "Project Falcon",
+        ruleId: "heuristics.capitalization-cluster",
+        sourceKind: "nonPii",
+        reviewSection: "heuristics",
+        confidence: 0.7,
+      },
+    ]);
+
+    expect(targets[0]!.occurrences[0]!.confidence).toBe(0.7);
   });
 
   it("keeps manual and auto targets with the same display text in separate namespaces", () => {
@@ -151,5 +172,63 @@ describe("selection-targets", () => {
     expect(resolved[0]!.redactionLiterals).toContain("０１０–1234–5678");
     expect(resolved[1]!.redactionLiterals).toContain("“Pearl Abyss”");
     expect(resolved[1]!.verificationLiterals).not.toContain("\"Pearl Abyss\"");
+  });
+
+  it("adds original document slices to manual targets matched by normalization", () => {
+    const target = buildManualSelectionTarget(
+      "010-1234-5678",
+      "other",
+      "Please call ０１０–1234–5678 before closing.",
+    );
+
+    const [resolved] = resolveSelectedTargets([target], new Set([target.id]));
+
+    expect(target.literalVariants).toContain("010-1234-5678");
+    expect(target.literalVariants).toContain("０１０–1234–5678");
+    expect(resolved!.redactionLiterals).toContain("０１０–1234–5678");
+    expect(resolved!.verificationLiterals).toContain("０１０–1234–5678");
+  });
+
+  it("adds smart-quote document slices to manual targets matched by normalization", () => {
+    const target = buildManualSelectionTarget(
+      "\"Pearl Abyss\"",
+      "entities",
+      "The agreement refers to “Pearl Abyss” throughout.",
+    );
+
+    const [resolved] = resolveSelectedTargets([target], new Set([target.id]));
+
+    expect(target.literalVariants).toContain("\"Pearl Abyss\"");
+    expect(target.literalVariants).toContain("“Pearl Abyss”");
+    expect(resolved!.redactionLiterals).toContain("“Pearl Abyss”");
+    expect(resolved!.verificationLiterals).toContain("“Pearl Abyss”");
+  });
+
+  it("keeps manual targets literal-only when no normalized corpus match exists", () => {
+    const target = buildManualSelectionTarget(
+      "010-1234-5678",
+      "other",
+      "No phone number in this corpus.",
+    );
+
+    expect(target.literalVariants).toEqual(["010-1234-5678"]);
+  });
+
+  it("recovers every unique original slice for a normalized manual string", () => {
+    expect(
+      findOriginalLiteralVariants(
+        "010-1234-5678",
+        "A 010-1234-5678 B ０１０–1234–5678 C 010‑1234‑5678",
+      ),
+    ).toEqual(["010-1234-5678", "０１０–1234–5678", "010‑1234‑5678"]);
+  });
+
+  it("throws if two different display strings share one selection id", () => {
+    expect(() =>
+      assertNoSelectionTargetIdCollisions([
+        { id: "auto:deadbeef", displayText: "ABC Corp" },
+        { id: "auto:deadbeef", displayText: "XYZ Corp" },
+      ]),
+    ).toThrow(/collision/i);
   });
 });

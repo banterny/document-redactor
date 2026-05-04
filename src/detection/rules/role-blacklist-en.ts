@@ -1,5 +1,5 @@
 /**
- * English role-word blacklist — 50 tokens that appear heavily in legal
+ * English role-word blacklist — common tokens that appear heavily in legal
  * documents but are NOT sensitive entity names.
  *
  * All entries are LOWERCASE. Heuristics compare against this set after
@@ -22,5 +22,5 @@ export const ROLE_BLACKLIST_EN: ReadonlySet<string> = new Set([
   "assignor", "assignee", "transferor", "transferee",
   "employer", "employee", "contractor", "subcontractor",
   "principal", "trustee", "beneficiary", "fiduciary",
-  "discloser", "recipient",
+  "discloser", "recipient", "court", "courts",
 ]) as ReadonlySet<string>;
