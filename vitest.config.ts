@@ -11,6 +11,13 @@ export default defineConfig({
     // sync with the fork's own docs. Excluded here rather than patched
     // in-place to keep merge conflicts away from the test file itself.
     exclude: ["src/docs-stale.test.ts", "node_modules/**", "dist/**"],
+    // Use the threads pool instead of vitest's default forks pool. Some
+    // tests (notably redos-guard.test.ts and ship-gate.test.ts with fake
+    // timers) leave open handles that prevent fork workers from exiting,
+    // causing `bun run test` to hang at the end of the run. Threads share
+    // a process and shut down cleanly. No behavioural change to the tests
+    // themselves — only the worker model.
+    pool: "threads",
     environment: "node",
     coverage: {
       provider: "v8",
