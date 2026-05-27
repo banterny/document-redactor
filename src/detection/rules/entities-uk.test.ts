@@ -220,6 +220,26 @@ describe("entities.uk-legal-title", () => {
       ["District Judge Taylor Jones"],
     ],
     [
+      "matches His Honour Judge with name",
+      "His Honour Judge Smith",
+      ["His Honour Judge Smith"],
+    ],
+    [
+      "matches Her Honour Judge with name",
+      "Her Honour Judge Patel",
+      ["Her Honour Judge Patel"],
+    ],
+    [
+      "matches Mrs Justice with name",
+      "Mrs Justice Andrews",
+      ["Mrs Justice Andrews"],
+    ],
+    [
+      "matches Lord Justice with name",
+      "Lord Justice Lewison",
+      ["Lord Justice Lewison"],
+    ],
+    [
       "rejects bare title without name",
       "District Judge",
       [],
@@ -428,54 +448,54 @@ describe("entities.uk-medical-title", () => {
 describe("entities.uk-medical-context", () => {
   it.each([
     [
-      "matches Patient label (leading space included in capture)",
+      "matches Patient label",
       "Patient: John Smith",
-      [" John Smith"],
+      ["John Smith"],
     ],
     [
       "matches D.O.B label with dots",
       "D.O.B: 15/03/1980",
-      [" 15/03/1980"],
+      ["15/03/1980"],
     ],
     [
       "matches GP label",
       "GP: Dr Williams",
-      [" Dr Williams"],
+      ["Dr Williams"],
     ],
     [
       "matches Ward label",
       "Ward: 7B",
-      [" 7B"],
+      ["7B"],
     ],
     [
       "matches Consultant label",
       "Consultant: Mr Taylor",
-      [" Mr Taylor"],
+      ["Mr Taylor"],
     ],
     [
       "matches DOB label without dots",
       "DOB: 01/01/1990",
-      [" 01/01/1990"],
+      ["01/01/1990"],
     ],
     [
       "matches Patient Name label",
       "Patient Name: Jane Doe",
-      [" Jane Doe"],
+      ["Jane Doe"],
     ],
     [
       "matches Next of Kin label",
       "Next of Kin: Mary Smith",
-      [" Mary Smith"],
+      ["Mary Smith"],
     ],
     [
       "matches Specialty label",
       "Specialty: Cardiology",
-      [" Cardiology"],
+      ["Cardiology"],
     ],
     [
       "matches General Practitioner label",
       "General Practitioner: Dr Jones",
-      [" Dr Jones"],
+      ["Dr Jones"],
     ],
     [
       "matches cleanly with no space after colon",
@@ -485,42 +505,42 @@ describe("entities.uk-medical-context", () => {
     [
       "matches multiple labels in one text",
       "Patient: John Smith\nWard: 7B",
-      [" John Smith", " 7B"],
+      ["John Smith", "7B"],
     ],
     [
       "stops at semicolons",
       "Patient: John Smith; further notes",
-      [" John Smith"],
+      ["John Smith"],
     ],
     [
       "stops at newlines",
       "GP: Dr Williams\nConsultant: Mr Taylor",
-      [" Dr Williams", " Mr Taylor"],
+      ["Dr Williams", "Mr Taylor"],
     ],
     [
       "matches Date of Birth label",
       "Date of Birth: 15/03/1980",
-      [" 15/03/1980"],
+      ["15/03/1980"],
     ],
     [
       "matches Date of Death label",
       "Date of Death: 01/01/2020",
-      [" 01/01/2020"],
+      ["01/01/2020"],
     ],
     [
       "matches DOD label",
       "DOD: 01/01/2020",
-      [" 01/01/2020"],
+      ["01/01/2020"],
     ],
     [
       "matches NOK label",
       "NOK: Mary Smith",
-      [" Mary Smith"],
+      ["Mary Smith"],
     ],
     [
       "matches Referring Clinician label",
       "Referring Clinician: Dr Brown",
-      [" Dr Brown"],
+      ["Dr Brown"],
     ],
     [
       "rejects text without label prefix",
