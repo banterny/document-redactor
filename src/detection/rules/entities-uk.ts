@@ -36,7 +36,7 @@ export const ENTITIES_UK = [
     category: "entities",
     subcategory: "uk-legal-title",
     pattern:
-      /(?<![A-Za-z])(?:(?:His|Her)\s+Honou?r\s+Judge|(?:Mrs?|Lady|Lord)\s+Justice|(?:Master|Senior Master|Registrar|District Judge|Deputy (?:District )?Judge|Recorder|Coroner|(?:HH|HHJ|DJ|DDJ))\s+)[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}(?![A-Za-z])/g,
+      /(?<![A-Za-z])(?:(?:His|Her)\s+Honou?r\s+Judge\s+|(?:Mrs?|Lady|Lord)\s+Justice\s+|(?:Master|Senior Master|Registrar|District Judge|Deputy (?:District )?Judge|Recorder|Coroner|(?:HH|HHJ|DJ|DDJ))\s+)[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}(?![A-Za-z])/g,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:
@@ -79,7 +79,7 @@ export const ENTITIES_UK = [
     category: "entities",
     subcategory: "uk-medical-context",
     pattern:
-      /(?<=(?:Patient|Patient Name|D\.?O\.?B|Date of Birth|Date of Death|DOD|Next of Kin|NOK|GP|General Practitioner|Referring Clinician|Consultant|Ward|Specialty)\s*:\s*)[^\n;]{2,80}(?=$|\n|;)/g,
+      /(?<=(?:Patient|Patient Name|D\.?O\.?B|Date of Birth|Date of Death|DOD|Next of Kin|NOK|GP|General Practitioner|Referring Clinician|Consultant|Ward|Specialty)\s*:\s*)(?![ \t])[^\n;]{2,80}(?=$|\n|;)/g,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:

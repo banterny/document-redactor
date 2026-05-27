@@ -184,7 +184,7 @@ export const IDENTIFIERS_UK = [
     category: "identifiers",
     subcategory: "uk-hospital-mrn",
     pattern:
-      /(?<=(?:Hospital (?:No|Number|Ref)|MRN|Patient (?:ID|No|Number)|Unit (?:No|Number)|Hosp\.? No)[.:]?\s*)[A-Z]{0,4}\s?\d{4,8}(?!\d)/gi,
+      /(?<=(?:Hospital (?:No|Number|Ref)|MRN|Patient (?:ID|No|Number)|Unit (?:No|Number)|Hosp\.? No)[.:]?\s*)(?![ \t])[A-Z]{0,4}\s?\d{4,8}(?!\d)/gi,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:
