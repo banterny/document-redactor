@@ -544,57 +544,57 @@ describe("identifiers.uk-hospital-mrn", () => {
     [
       "matches MRN bare digits (MRN: 123456)",
       "MRN: 123456",
-      [" 123456"],
+      ["123456"],
     ],
     [
       "matches Patient No label",
       "Patient No: 12345678",
-      [" 12345678"],
+      ["12345678"],
     ],
     [
       "matches Patient Number label",
       "Patient Number: 123456",
-      [" 123456"],
+      ["123456"],
     ],
     [
       "matches Patient ID label",
       "Patient ID: 12345678",
-      [" 12345678"],
+      ["12345678"],
     ],
     [
       "matches Hospital No label",
       "Hospital No: 123456",
-      [" 123456"],
+      ["123456"],
     ],
     [
       "matches Hospital Number label",
       "Hospital Number: 123456",
-      [" 123456"],
+      ["123456"],
     ],
     [
       "matches Hospital Ref label",
       "Hospital Ref: 123456",
-      [" 123456"],
+      ["123456"],
     ],
     [
       "matches Unit No label",
       "Unit No: 123456",
-      [" 123456"],
+      ["123456"],
     ],
     [
       "matches Hosp No label",
       "Hosp No: 123456",
-      [" 123456"],
+      ["123456"],
     ],
     [
       "matches Hosp. No label",
       "Hosp. No: 123456",
-      [" 123456"],
+      ["123456"],
     ],
     [
       "matches at the end of the string",
       "MRN: 123456",
-      [" 123456"],
+      ["123456"],
     ],
     [
       "rejects bare number without label",
