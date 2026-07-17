@@ -315,6 +315,21 @@ describe("legal.uk-coroner-ref", () => {
   it("is ReDoS-safe on pathological coroner-ref input", () => {
     expectFast("uk-coroner-ref", "Coroner's Ref: " + "2024-".repeat(5000));
   });
+
+  // Regression: the pre-fix pattern had no `(?![ \t])` guard at all, so a
+  // long run of whitespace with no reachable label made the engine try the
+  // expensive variable-length lookbehind at every offset before failing.
+  // Measured ~190ms on 10,000 whitespace characters (over the 50ms budget)
+  // before the guard was added. Safe to add here (unlike uk-legal-context)
+  // because the value body (`\d{2,4}[-/]\d{2,6}` / `[A-Z]{1,3}[-/]?\d{4,8}`)
+  // can never legitimately start with a space or tab.
+  it("is ReDoS-safe on a long run of bare whitespace (no label present)", () => {
+    expectFast("uk-coroner-ref", " ".repeat(20000));
+  });
+
+  it("is ReDoS-safe on a label followed by a long run of whitespace", () => {
+    expectFast("uk-coroner-ref", "Coroner's Ref:" + " ".repeat(20000));
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -431,5 +446,98 @@ describe("legal.uk-legal-context", () => {
 
   it("is ReDoS-safe on long value after label", () => {
     expectFast("uk-legal-context", "Claim No: " + "A".repeat(10000), 100);
+  });
+
+  // Regression: the pre-fix pattern had two independent unbounded `\s*`
+  // runs (separated only by an optional, usually-absent colon) inside each
+  // of the four lookbehind alternatives. Against a long run of whitespace
+  // with no reachable label, this gave the engine O(k) equivalent ways to
+  // split the run before concluding the label text wasn't there -- and with
+  // four such alternatives, the cost compounded further. Measured as
+  // non-terminating (killed after 60s) on 10,000 whitespace characters
+  // before the fix; this is the worst of the four rules fixed in the commit
+  // that added this test. A bare fill character (no whitespace at all, as
+  // used by the "long value after label" test above) never reached this
+  // path -- only a long run of whitespace does.
+  it("is ReDoS-safe on a long run of bare whitespace (no label present)", () => {
+    expectFast("uk-legal-context", " ".repeat(20000), 200);
+  });
+
+  it("is ReDoS-safe on a label followed by a long run of whitespace with no reachable value", () => {
+    expectFast("uk-legal-context", "Claim No:" + " ".repeat(20000), 200);
+  });
+
+  it("is ReDoS-safe on each lookbehind alternative independently", () => {
+    expectFast("uk-legal-context", "Case No:" + " ".repeat(20000), 200);
+    expectFast("uk-legal-context", "Reference:" + " ".repeat(20000), 200);
+    expectFast(
+      "uk-legal-context",
+      "Inquest touching the death of" + " ".repeat(20000),
+      200,
+    );
+  });
+
+  // Behaviour-preservation matrix (see docs/RULES_GUIDE.md SS 7 and the
+  // fix commit's differential test). The fix restructures each lookbehind
+  // alternative's internal whitespace handling for performance but must not
+  // change which text is captured. This locks in the exact (including the
+  // documented quirks noted above, e.g. leading colon/space in the match
+  // body) byte-for-byte output across label/padding combinations from 0 to
+  // 40 spaces, tabs, CRLF, and newline+indent continuations -- the same
+  // matrix used to verify zero differences against the pre-fix pattern.
+  it.each([
+    [0, "Claim No:", "KB-2024-001234", [":KB-2024-001234"]],
+    [1, "Claim No:", "KB-2024-001234", [": KB-2024-001234"]],
+    [3, "Claim No:", "KB-2024-001234", [":   KB-2024-001234"]],
+    [5, "Claim No:", "KB-2024-001234", [":     KB-2024-001234"]],
+    [10, "Claim No:", "KB-2024-001234", [":          KB-2024-001234"]],
+    [11, "Claim No:", "KB-2024-001234", [":           KB-2024-001234"]],
+    [20, "Claim No:", "KB-2024-001234", [":                    KB-2024-001234"]],
+    [
+      40,
+      "Claim No:",
+      "KB-2024-001234",
+      [":                                        KB-2024-001234"],
+    ],
+  ])(
+    "captures identically to the pre-fix pattern with %i spaces of padding",
+    (n: number, label: string, value: string, expected: string[]) => {
+      expect(matchOne("uk-legal-context", `${label}${" ".repeat(n)}${value}`)).toEqual(
+        expected,
+      );
+    },
+  );
+
+  it("preserves the pre-fix tab-padding behaviour", () => {
+    expect(matchOne("uk-legal-context", "Claim No:\tKB-2024-001234")).toEqual([
+      ":\tKB-2024-001234",
+    ]);
+  });
+
+  it("preserves the pre-fix CRLF-padding behaviour (label and value on the same effective line)", () => {
+    expect(matchOne("uk-legal-context", "Claim No:\r\nKB-2024-001234")).toEqual([
+      "KB-2024-001234",
+    ]);
+  });
+
+  it("preserves the pre-fix newline+indent continuation behaviour (label at EOL, value indented on the next line)", () => {
+    expect(matchOne("uk-legal-context", "Claim No\n  KB-2024-001234")).toEqual([
+      "  KB-2024-001234",
+    ]);
+  });
+
+  it("preserves the pre-fix behaviour for the Ref, Case No, and Inquest alternatives under padding", () => {
+    expect(matchOne("uk-legal-context", "Ref:" + " ".repeat(15) + "2024-0123")).toEqual([
+      ":               2024-0123",
+    ]);
+    expect(matchOne("uk-legal-context", "Case No" + " ".repeat(9) + "A12YX123")).toEqual([
+      "         A12YX123",
+    ]);
+    expect(
+      matchOne(
+        "uk-legal-context",
+        "Inquest touching the death of" + " ".repeat(15) + "JOHN SMITH",
+      ),
+    ).toEqual(["               JOHN SMITH"]);
   });
 });

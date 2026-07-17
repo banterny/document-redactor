@@ -613,6 +613,20 @@ describe("identifiers.uk-hospital-mrn", () => {
   it("is ReDoS-safe on pathological input", () => {
     expectFast("uk-hospital-mrn", "MRN: " + "123456 ".repeat(714));
   });
+
+  // Regression: the pre-fix pattern checked `(?![ \t])` AFTER the
+  // variable-length lookbehind rather than before it, so a long run of
+  // whitespace with no reachable label made the engine try the expensive
+  // lookbehind at every offset before failing. Measured ~239ms on 10,000
+  // whitespace characters (over the 50ms budget) before the guard was
+  // hoisted ahead of the lookbehind.
+  it("is ReDoS-safe on a long run of bare whitespace (no label present)", () => {
+    expectFast("uk-hospital-mrn", " ".repeat(20000));
+  });
+
+  it("is ReDoS-safe on a label followed by a long run of whitespace", () => {
+    expectFast("uk-hospital-mrn", "MRN:" + " ".repeat(20000));
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -183,8 +183,15 @@ export const IDENTIFIERS_UK = [
     id: "identifiers.uk-hospital-mrn",
     category: "identifiers",
     subcategory: "uk-hospital-mrn",
+    // The `(?![ \t])` guard is hoisted ahead of the lookbehind (rather than
+    // sitting between the lookbehind and the value body) so V8 evaluates the
+    // cheap next-char check before the variable-length lookbehind. Both are
+    // zero-width assertions at the same position, so reordering them cannot
+    // change what is matched -- it only lets the guard short-circuit the
+    // expensive lookbehind before its `\s*` backtracks catastrophically over
+    // an adversarial run of whitespace. See docs/RULES_GUIDE.md SS 7.
     pattern:
-      /(?<=(?:Hospital (?:No|Number|Ref)|MRN|Patient (?:ID|No|Number)|Unit (?:No|Number)|Hosp\.? No)[.:]?\s*)(?![ \t])[A-Z]{0,4}\s?\d{4,8}(?!\d)/gi,
+      /(?![ \t])(?<=(?:Hospital (?:No|Number|Ref)|MRN|Patient (?:ID|No|Number)|Unit (?:No|Number)|Hosp\.? No)[.:]?\s*)[A-Z]{0,4}\s?\d{4,8}(?!\d)/gi,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:
