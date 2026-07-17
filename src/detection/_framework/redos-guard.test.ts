@@ -14,11 +14,23 @@ const ADVERSARIAL_INPUTS: readonly string[] = [
   " ".repeat(10_000),
 ];
 
+// Matches ADVERSARIAL_INPUTS' length (10,000 chars). Smoke mode stays
+// in-process (no subprocess spawn -- that's the part that was too slow for
+// CI, see the guardMode comment below), so a longer input here is cheap for
+// well-behaved rules but is what actually exposes "only quadratic, not
+// exponential" ReDoS bugs: entities.uk-medical-context, legal.uk-coroner-ref,
+// and identifiers.uk-hospital-mrn all measured comfortably under the 50ms
+// budget at the previous 1,000-char smoke length (0.2-2.6ms) while taking
+// 64-239ms -- several times over budget -- at 10,000 chars. A 1,000-char
+// smoke corpus could not have caught three of the four rules fixed in the
+// commit that added this comment; only the worst of the four
+// (legal.uk-legal-context, ~900ms even at 1,000 chars) was ever visible to
+// CI's smoke gate.
 const SMOKE_ADVERSARIAL_INPUTS: readonly string[] = [
-  "a".repeat(1_000),
-  "1".repeat(1_000),
-  "a-".repeat(500),
-  " ".repeat(1_000),
+  "a".repeat(10_000),
+  "1".repeat(10_000),
+  "a-".repeat(5_000),
+  " ".repeat(10_000),
 ];
 
 const WARMUP_RUNS = 25;
@@ -91,6 +103,16 @@ process.stdout.write(String(elapsed / ${MEASURED_RUNS}));
   return Number(
     execFileSync("node", ["-e", script], {
       encoding: "utf8",
+      // A genuinely catastrophic (super-polynomial or non-terminating)
+      // pattern can block this subprocess indefinitely -- `bun run
+      // test:redos:deep` was observed to hang past 120s with no output
+      // before legal.uk-legal-context was fixed. Without a timeout here,
+      // that hang is silent and requires a manual kill; with it, the
+      // subprocess is killed and execFileSync throws, so the offending
+      // test fails loudly instead of stalling the whole suite. 20s gives
+      // ample headroom over the legitimate worst case (225 warmup+measured
+      // scans just under the 50ms/100ms budget is ~11s).
+      timeout: 20_000,
       env: {
         PATH: process.env.PATH ?? "",
       },
