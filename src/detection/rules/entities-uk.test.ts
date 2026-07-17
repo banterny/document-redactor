@@ -559,6 +559,22 @@ describe("entities.uk-medical-context", () => {
   it("is ReDoS-safe on long medical context input", () => {
     expectFast("uk-medical-context", "Patient: " + "A".repeat(10000));
   });
+
+  // Regression: the pre-fix pattern checked `(?![ \t])` AFTER the
+  // variable-length lookbehind rather than before it, so a long run of
+  // whitespace with no reachable label made the engine try the expensive
+  // lookbehind at every offset before failing. Measured ~64ms on 10,000
+  // whitespace characters (over the 50ms budget) before the guard was
+  // hoisted ahead of the lookbehind. Bare whitespace (no label at all) is
+  // the actual adversarial shape -- a value-only fill character does not
+  // reach this path.
+  it("is ReDoS-safe on a long run of bare whitespace (no label present)", () => {
+    expectFast("uk-medical-context", " ".repeat(20000));
+  });
+
+  it("is ReDoS-safe on a label followed by a long run of whitespace", () => {
+    expectFast("uk-medical-context", "Patient:" + " ".repeat(20000));
+  });
 });
 
 // -- 6. uk-inquest-context -----------------------------------------------------

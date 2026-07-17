@@ -78,8 +78,15 @@ export const ENTITIES_UK = [
     id: "entities.uk-medical-context",
     category: "entities",
     subcategory: "uk-medical-context",
+    // The `(?![ \t])` guard is hoisted ahead of the lookbehind (rather than
+    // sitting between the lookbehind and the value body) so V8 evaluates the
+    // cheap next-char check before the variable-length lookbehind. Both are
+    // zero-width assertions at the same position, so reordering them cannot
+    // change what is matched -- it only lets the guard short-circuit the
+    // expensive lookbehind before its `\s*` backtracks catastrophically over
+    // an adversarial run of whitespace. See docs/RULES_GUIDE.md SS 7.
     pattern:
-      /(?<=(?:Patient|Patient Name|D\.?O\.?B|Date of Birth|Date of Death|DOD|Next of Kin|NOK|GP|General Practitioner|Referring Clinician|Consultant|Ward|Specialty)\s*:\s*)(?![ \t])[^\n;]{2,80}(?=$|\n|;)/g,
+      /(?![ \t])(?<=(?:Patient|Patient Name|D\.?O\.?B|Date of Birth|Date of Death|DOD|Next of Kin|NOK|GP|General Practitioner|Referring Clinician|Consultant|Ward|Specialty)\s*:\s*)[^\n;]{2,80}(?=$|\n|;)/g,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:
