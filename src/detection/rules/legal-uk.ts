@@ -79,6 +79,24 @@ export const LEGAL_UK = [
     //      a constant instead of letting it grow with attacker-controlled
     //      input length. This is deliberately NOT the previously-rejected
     //      `{0,10}` bound, which was small enough to clip real padding.
+    //
+    // KNOWN, DELIBERATE LIMIT (unlike the guard-hoist fixes elsewhere in
+    // this file, which are exact for any input, this bound is not): because
+    // the lookbehind's whitespace run is capped at 100 chars but the value
+    // body (`[^\n;,]{3,80}`) can itself absorb *space* padding as part of
+    // its own 80-char budget, a space-padded value is still detected up to
+    // `100 + 80 - value.length` consecutive spaces between label and value
+    // (e.g. a 15-char value survives up to 165 spaces of padding; a 60-char
+    // value survives up to 120). Beyond that the match is silently missed --
+    // confirmed by binary search, not estimated. For *newline* padding the
+    // cliff is a flat 100 regardless of value length, because `[^\n;,]`
+    // excludes `\n` and so cannot absorb any of the overrun the way it can
+    // for spaces. 100-165+ consecutive whitespace characters between a
+    // label and its value is not a shape any real UK court or clinical
+    // document produces, so this is accepted as a real, bounded limitation
+    // rather than chased further -- see the "known limit" tests in
+    // legal-uk.test.ts, which pin the exact boundary so a future change to
+    // this pattern cannot silently move it without a failing test.
     // See docs/RULES_GUIDE.md SS 7.
     pattern:
       /(?:(?<=Claim No\.?\s{0,100}(?::\s{0,100})?)|(?<=Case No\.?\s{0,100}(?::\s{0,100})?)|(?<=Ref(?:erence)?\.?\s{0,100}(?::\s{0,100})?)|(?<=Inquest\s{1,100}(?:touching|into)\s{1,100}the\s{1,100}death\s{1,100}of\s{0,100}))[^\n;,]{3,80}(?=$|\n|[;,])/g,
