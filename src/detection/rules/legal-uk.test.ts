@@ -540,4 +540,86 @@ describe("legal.uk-legal-context", () => {
       ),
     ).toEqual(["               JOHN SMITH"]);
   });
+
+  // ------------------------------------------------------------------
+  // Known, deliberate limit of the `\s{0,100}` bound (see legal-uk.ts).
+  //
+  // The behaviour-preservation matrix above only tests 0-40 spaces of
+  // padding, which is well inside the supported range and proves nothing
+  // about padding beyond it. The bound genuinely diverges from the
+  // pre-fix (unbounded) pattern once padding exceeds
+  // `100 + 80 - value.length` consecutive spaces (or exactly 100
+  // consecutive newlines, regardless of value length, because the value
+  // body excludes `\n`). These tests pin that exact boundary -- both the
+  // supported side (must still detect) and the missed side (must not
+  // silently regress to "detects" without deliberately widening the
+  // bound and updating this comment) -- so a future reader discovers the
+  // limit here, not by finding a redacted document that leaked a name.
+  //
+  // The Inquest alternative is the one with no independent safety net:
+  // its value is the deceased's name, caught by no other rule. (The
+  // Claim No/Case No/Ref alternatives' values are also independently
+  // caught by legal.uk-claim-number and legal.uk-coroner-ref regardless
+  // of this rule's padding cliff.)
+  // ------------------------------------------------------------------
+  describe("known limit: extreme whitespace padding beyond the \\s{0,100} bound", () => {
+    it("still detects a name at the maximum supported space padding (165 = 100 + 80 - 15)", () => {
+      // The match itself is bounded by the value body's own {3,80} budget,
+      // so only the last (80 - value.length) spaces are captured alongside
+      // the value, not the full 165 -- the leftmost successful start
+      // position is wherever the remaining padding+value first fits within
+      // 80 characters. What matters here is that a match exists at all.
+      expect(
+        matchOne(
+          "uk-legal-context",
+          "Inquest touching the death of" + " ".repeat(165) + "Margaret Hollis",
+        ),
+      ).toEqual([" ".repeat(80 - "Margaret Hollis".length) + "Margaret Hollis"]);
+    });
+
+    it("KNOWN MISS: does not detect a name one space beyond the supported padding (166)", () => {
+      expect(
+        matchOne(
+          "uk-legal-context",
+          "Inquest touching the death of" + " ".repeat(166) + "Margaret Hollis",
+        ),
+      ).toEqual([]);
+    });
+
+    it("the supported padding shrinks as the value gets longer (100 + 80 - value.length)", () => {
+      const longName = "A very long deceased person's full legal name for the record";
+      expect(longName).toHaveLength(60);
+      const cliff = 100 + 80 - longName.length; // 120
+      expect(
+        matchOne(
+          "uk-legal-context",
+          "Inquest touching the death of" + " ".repeat(cliff) + longName,
+        ),
+      ).toEqual([" ".repeat(80 - longName.length) + longName]);
+      expect(
+        matchOne(
+          "uk-legal-context",
+          "Inquest touching the death of" + " ".repeat(cliff + 1) + longName,
+        ),
+      ).toEqual([]);
+    });
+
+    it("still detects a name at the maximum supported newline padding (100, the lookbehind bound itself)", () => {
+      expect(
+        matchOne(
+          "uk-legal-context",
+          "Inquest touching the death of" + "\n".repeat(100) + "Margaret Hollis",
+        ),
+      ).toEqual(["Margaret Hollis"]);
+    });
+
+    it("KNOWN MISS: does not detect a name one newline beyond the supported padding (101) -- the value body excludes \\n so it cannot compensate the way it can for spaces", () => {
+      expect(
+        matchOne(
+          "uk-legal-context",
+          "Inquest touching the death of" + "\n".repeat(101) + "Margaret Hollis",
+        ),
+      ).toEqual([]);
+    });
+  });
 });
