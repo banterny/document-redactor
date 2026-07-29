@@ -368,6 +368,25 @@ describe.skipIf(skipInCi)("ReDoS guard", () => {
       expect(orphaned).toEqual([]);
     });
 
+    // The in-process paths fall back to `performance.now()` when the
+    // thread-scoped CPU clock is missing (it is absent under bun; vitest runs
+    // test code under node, where it exists). That fallback is SILENT, and a
+    // wall-clock budget under `pool: "threads"` measures scheduler pressure as
+    // much as it measures the rule -- so a fallback turns every in-process
+    // assertion here into a contention detector without saying so. The failure
+    // message names the runtime, because the whole point is to know WHICH
+    // environment lost the instrument rather than to debug it from a budget
+    // breach that looks like a slow rule.
+    it("measures in-process cost with the thread-scoped CPU clock", () => {
+      const runtime = process.versions.bun
+        ? `bun ${process.versions.bun}`
+        : `node ${process.version}`;
+      expect(
+        { runtime, instrument: THREAD_CPU_AVAILABLE ? "threadCpuUsage" : "performance.now" },
+        "in-process ReDoS budgets silently degrade to wall-clock without threadCpuUsage",
+      ).toEqual({ runtime, instrument: "threadCpuUsage" });
+    });
+
     it("the in-process instrument detects catastrophic backtracking", () => {
       // Guards the smoke path, which is what CI actually runs.
       expect(
