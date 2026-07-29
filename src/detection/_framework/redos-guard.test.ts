@@ -135,37 +135,27 @@ const AVAILABLE_ENGINES: readonly RegexEngine[] = REGEX_ENGINES.filter((engine) 
 /**
  * Rules known to exceed the budget on a specific engine, and not yet fixed.
  *
- * This is a NAMED, GREPPABLE list of exactly two exceptions with their measured
- * costs -- deliberately not a raised global budget. Raising the budget until it
- * stops complaining hides everything at once, and is precisely how the original
- * four context-gated rules shipped past a guard that was silently skipping.
+ * CURRENTLY EMPTY, and the intent is that it stays that way. It held three
+ * rule x engine x input combinations -- `legal.uk-legal-context` on a
+ * whitespace run, and `entities.ko-corp-suffix` on digit and `a-` runs, all
+ * three under JavaScriptCore -- until those two rules were redesigned. See the
+ * comments on each pattern for the techniques and the measured before/after.
+ *
+ * The mechanism is kept rather than deleted, because RULES_GUIDE § 7.3 points
+ * at it and an empty table is the honest way to say "nothing is quarantined".
+ * It is a NAMED, GREPPABLE list of exceptions carrying their measured costs --
+ * deliberately not a raised global budget. Raising the budget until it stops
+ * complaining hides everything at once, and is precisely how the original four
+ * context-gated rules shipped past a guard that was silently skipping.
  *
  * Each entry is asserted with `it.fails`, so it stays quick, keeps the suite
  * green (meaning a red run again signals NEW breakage), and -- importantly --
  * turns red the moment somebody actually fixes the rule, prompting removal of
- * the exception rather than letting it rot.
+ * the exception rather than letting it rot. That is how these three were
+ * cleared: deleting the entries turned the gate red first, which is what the
+ * fixes were then measured against.
  */
-const KNOWN_ENGINE_EXCEPTIONS: Readonly<Record<string, string>> = {
-  // Measured 77.8ms against the 50ms budget. Cannot take the `(?![ \t])` guard
-  // its siblings use: this rule's value body (`[^\n;,]{3,80}`) can legitimately
-  // START with whitespace -- a documented, test-pinned behaviour that lets a
-  // label at end-of-line bridge to an indented value on the next line. Needs a
-  // different technique, not a guard.
-  'legal.uk-legal-context::JavaScriptCore::" ".repeat(10_000)':
-    "77.8ms vs 50ms budget; guard technique does not apply (body may start with whitespace)",
-
-  // Measured 764.6ms and 411.0ms. A different shape to the other rules fixed
-  // here: no positive lookbehind at all, so hoisting a guard measurably does
-  // nothing (726ms after). The cost is greedy-run backtracking in
-  // `[A-Za-z0-9][A-Za-z0-9&.\-]*` before `\s+`, retried at every position the
-  // negative lookbehind admits -- which is why it bites on digits and `a-`
-  // repeats but NOT on whitespace. Fixable with atomic-group emulation
-  // (`(?=(...))\1`), which is a behaviour-sensitive change worth its own review.
-  'entities.ko-corp-suffix::JavaScriptCore::"1".repeat(10_000)':
-    "764.6ms vs 50ms budget; greedy-run backtracking, not a lookbehind problem",
-  'entities.ko-corp-suffix::JavaScriptCore::"a-".repeat(5_000)':
-    "411.0ms vs 50ms budget; same cause as the '1' repeat case",
-};
+const KNOWN_ENGINE_EXCEPTIONS: Readonly<Record<string, string>> = {};
 
 /** Reduced iteration counts for known-slow exceptions, so they fail fast rather than timing out. */
 const EXCEPTION_WARMUP_RUNS = 1;
