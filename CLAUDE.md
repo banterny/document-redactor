@@ -21,7 +21,7 @@ ReDoS fuzz is skipped in CI. Run locally before merging any regex change:
 
 ```bash
 SKIP_REDOS_FUZZ=0 bun run test   # full suite incl. cross-engine ReDoS gate (~90s)
-bun run test:redos:deep          # the gate alone: 790 tests, ~88s
+bun run test:redos:deep          # the gate alone: 795 tests, ~2min
 ```
 
 The deep gate benchmarks every rule under **both** `node` (V8) and `bun`
