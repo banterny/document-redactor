@@ -155,6 +155,18 @@ The cliff is **`100 + 80 − value.length`** consecutive spaces, exactly, in eve
 
 ## 7. Residual risks
 
-1. **The 50ms budget is wall-clock**, so the guard tests are timing-sensitive and can fail spuriously on a loaded CI runner. Observed elsewhere on the same class of test: a contended run took 1024s with a spurious failure; idle, 13.1s and green. **If this bites, do not raise the budget until it stops complaining** — that silently removes the guard's teeth, which is how the original four rules shipped. Prefer CPU-time, or a warm-up plus a relative-to-baseline assertion, or running the guard serially.
-2. **Smoke mode has no hard kill-switch** for a hypothetical future in-process hang — a structural consequence of smoke avoiding subprocess spawning. Widening the corpus closes today's gap but adds no absolute ceiling.
-3. **`legal.uk-legal-context`'s cliff** (§4) is accepted and pinned, not eliminated.
+> **Status update.** This section is a risk register, so it is annotated rather
+> than rewritten; §§1–6 above are left as the analysis stood at the time. Risk 1
+> is **closed**. Risk 3 is closed for the engine-cost part and still stands for
+> the cliff. Risk 2 is unchanged. A fourth risk, unknown when this was written,
+> was found and closed: the whole analysis was V8-only.
+
+1. ~~**The 50ms budget is wall-clock**~~ — **CLOSED.** It bit, exactly as predicted, and the fix was the first option listed here. All eighteen co-located `expectFast` helpers now bill **thread CPU** through `tests/helpers/redos-budget.ts`; the deep gate's subprocess path uses `process.cpuUsage()`. Measured under 32 CPU hogs on 8 cores (load average 186): seven assertions across five files failed before the instrument change, none after. Note `process.cpuUsage()` is the *wrong* choice for the in-process paths — it is process-wide, so under `pool: "threads"` an idle test thread is billed every sibling's burn. See RULES_GUIDE § 8.1.
+
+   The warning in the original text held up and is worth keeping: an intermediate revision of `legal-uk.test.ts` did carry a raised 100ms budget purely to absorb scheduler noise. Fixing the instrument let it go back to the standard 50ms.
+
+2. **Smoke mode has no hard kill-switch** for a hypothetical future in-process hang — a structural consequence of smoke avoiding subprocess spawning. Widening the corpus closes today's gap but adds no absolute ceiling. **Still open.**
+
+3. **`legal.uk-legal-context`'s cliff** (§4) is accepted and pinned, not eliminated. **Still open, and deliberately unchanged** — the later rework of this rule was verified to preserve it exactly (144,835 cases, 0 diffs), because moving a cliff inwards is a silent leak.
+
+4. **This analysis was V8-only** — not known to be a risk when it was written, and the largest thing it missed. `legal.uk-legal-context` was left at 2.5× budget on JavaScriptCore, and twelve further rules were catastrophic there while measuring ~0.00ms under V8. **Closed:** the gate is now cross-engine, thirteen rules were fixed, and `KNOWN_ENGINE_EXCEPTIONS` is empty. §3's conclusion that "the guard technique does not apply" to `legal.uk-legal-context` was right, but the implied conclusion that nothing else would was not — see the rule's own comment for the three exact techniques that did.

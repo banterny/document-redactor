@@ -638,6 +638,8 @@ The sketch above is the *shape*; the real `redos-guard.test.ts` has since diverg
 
 Cost: 790 tests, ~88s locally. **A rule that fails this test must be redesigned before merge, not quarantined.** The `KNOWN_ENGINE_EXCEPTIONS` table exists for rules that cannot take the § 7.1 guard at all; each entry carries its measured cost and is asserted with `it.fails`, so it turns red the moment the rule is fixed. Adding to that table is a last resort, not a way to silence a red test.
 
+**That table is currently empty, and the intent is that it stays that way.** It held three rule × engine × input combinations — `legal.uk-legal-context` on a whitespace run and `entities.ko-corp-suffix` on digit and `a-` runs, all three under JavaScriptCore. Both rules were redesigned rather than left quarantined; the techniques are in the § 7.1 checklist above and in the rules' own comments. Deleting an entry turns the gate red *first*, which is the right order: it is what the replacement pattern then gets measured against. Note that no test currently exercises the `it.fails` path itself, so it is retained but unverified.
+
 ### 7.4 When you find a ReDoS
 
 1. Do NOT suppress the test.

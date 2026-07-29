@@ -10,7 +10,7 @@ runs from `file://`, never contacts a network.
 
 ```bash
 bun install          # dependencies
-bun run test         # full vitest suite (1700+ tests)
+bun run test         # full vitest suite (2700+ tests)
 bun run build        # single-file dist/document-redactor.html + .sha256 sidecar
 bunx eslint .        # lint (includes network-ban invariants)
 bunx svelte-check    # type-check Svelte components
@@ -106,6 +106,7 @@ See `docs/RULES_GUIDE.md` for the authoritative guide. Key constraints:
 | `src/finalize/` | Orchestration, word-count sanity, SHA-256 |
 | `src/propagation/` | Seed-driven alias expansion |
 | `src/ui/` | Svelte UI, state machine, engine adapter |
+| `tests/helpers/` | Shared test infrastructure. Outside `src/` on purpose: in tsconfig and ESLint scope, but not in the coverage `include` |
 | `docs/RULES_GUIDE.md` | Rule authoring reference |
 | `docs/review/` | External review briefs (untracked work may also be here) |
 
