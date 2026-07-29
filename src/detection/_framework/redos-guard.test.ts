@@ -319,9 +319,89 @@ const skipInCi =
   (process.env.CI === "true" && process.env.REDOS_GUARD_MODE === undefined) ||
   process.env.SKIP_REDOS_FUZZ === "1";
 
+/**
+ * A pattern that genuinely backtracks, used to prove this gate still has teeth.
+ *
+ * Choosing it is not obvious and the two intuitive candidates are both wrong:
+ *
+ *   /(a+)+$/    against a run of "a" measures 0.0ms -- V8 optimises it away
+ *               entirely, so it would pass a completely broken gate.
+ *   /^(a|a)*b/  is exponential rather than polynomial. It does not return at
+ *               all at this size, so it would fail via the 20s subprocess
+ *               timeout rather than via the budget assertion -- proving the
+ *               timeout works, not the measurement.
+ *
+ * `/^a*a*a{0,3}b/` is polynomial and never matches (the input has no "b"), so
+ * it burns a bounded, reproducible amount of CPU. Measured at 10,000 chars with
+ * the reduced exception run counts: 221.2ms on V8, 296.8ms on JavaScriptCore --
+ * 4.4x and 5.9x the 50ms budget, which is margin enough that this cannot flake
+ * into a false pass on faster hardware.
+ */
+const CANARY_SOURCE = "^a*a*a{0,3}b";
+const CANARY_INPUT = "a".repeat(10_000);
+
 describe.skipIf(skipInCi)("ReDoS guard", () => {
   const regexInputs =
     guardMode === "smoke" ? SMOKE_ADVERSARIAL_INPUTS : ADVERSARIAL_INPUTS;
+
+  // The gate's own machinery, which nothing else exercises now that
+  // KNOWN_ENGINE_EXCEPTIONS is empty. Without these, the quarantine path is
+  // dead code that would be discovered to be broken at the worst possible
+  // moment -- the next time somebody actually needs to quarantine a rule.
+  describe("gate self-checks", () => {
+    it("every KNOWN_ENGINE_EXCEPTIONS key names a real rule, engine and input", () => {
+      // A key is matched by exact string equality against a triple built in the
+      // loop below. A typo, a renamed rule, or a changed input therefore does
+      // not raise anything -- the entry simply never matches and sits there
+      // looking like a live exception while doing nothing. Validated against
+      // REGEX_ENGINES rather than AVAILABLE_ENGINES so the check does not
+      // change meaning on a machine that is missing an engine.
+      const valid = new Set<string>();
+      for (const rule of ALL_REGEX_RULES) {
+        for (const input of ADVERSARIAL_INPUTS) {
+          for (const engine of REGEX_ENGINES) {
+            valid.add(`${rule.id}::${engine.label}::${adversarialInputExpr(input)}`);
+          }
+        }
+      }
+      const orphaned = Object.keys(KNOWN_ENGINE_EXCEPTIONS).filter((k) => !valid.has(k));
+      expect(orphaned).toEqual([]);
+    });
+
+    it("the in-process instrument detects catastrophic backtracking", () => {
+      // Guards the smoke path, which is what CI actually runs.
+      expect(
+        benchmarkRegexSmoke(new RegExp(CANARY_SOURCE, "g"), CANARY_INPUT),
+      ).toBeGreaterThan(50);
+    });
+
+    // `it.fails` inverts the result: this passes only while the assertion
+    // inside it fails. Every quarantine entry depends on that inversion, so if
+    // vitest ever changed it, the whole table would silently invert with it.
+    it.fails("it.fails inverts, which is what every quarantine entry relies on", () => {
+      expect(true).toBe(false);
+    });
+
+    if (guardMode === "deep") {
+      for (const engine of AVAILABLE_ENGINES) {
+        it(`the quarantine path still has teeth [${engine.label}]`, () => {
+          // Deliberately the reduced counts a real exception entry uses, not
+          // the full ones: the point is that the CHEAP measurement an
+          // exception runs at is still enough to see a breach. If it were not,
+          // a quarantined rule would look fixed and the entry would be deleted.
+          const elapsed = benchmarkRegex(
+            CANARY_SOURCE,
+            "g",
+            CANARY_INPUT,
+            engine,
+            EXCEPTION_WARMUP_RUNS,
+            EXCEPTION_MEASURED_RUNS,
+          );
+          expect(elapsed).toBeGreaterThan(50);
+        });
+      }
+    }
+  });
 
   if (guardMode === "deep") {
     // Fail loudly rather than quietly narrowing coverage: a missing engine
