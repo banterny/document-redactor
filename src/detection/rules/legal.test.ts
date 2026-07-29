@@ -5,6 +5,8 @@ import type { RegexRule } from "../_framework/types.js";
 
 import { LEGAL } from "./legal.js";
 
+import { expectWithinBudget } from "../../../tests/helpers/redos-budget.js";
+
 function findRule(subcategory: string): RegexRule {
   const rule = LEGAL.find((r) => r.subcategory === subcategory);
   if (!rule) throw new Error(`Rule not found: ${subcategory}`);
@@ -23,10 +25,7 @@ function matchLegal(text: string): string[] {
 }
 
 function expectFast(subcategory: string, input: string, budgetMs = 50): void {
-  const start = performance.now();
-  void matchOne(subcategory, input);
-  const elapsed = performance.now() - start;
-  expect(elapsed).toBeLessThan(budgetMs);
+  expectWithinBudget(() => void matchOne(subcategory, input), budgetMs);
 }
 
 describe("LEGAL registry", () => {
