@@ -30,13 +30,13 @@ jobs:
 
       - name: Dump rule patterns with bun
         run: |
-          cat > /tmp/dump.ts <<'EOF'
+          cat > ./_dump.ts <<'EOF'
           import { ALL_REGEX_RULES } from "./src/detection/_framework/registry.ts";
           console.log(JSON.stringify(
             ALL_REGEX_RULES.map((r) => ({ id: r.id, source: r.pattern.source, flags: r.pattern.flags })),
           ));
           EOF
-          bun /tmp/dump.ts > /tmp/rules.json
+          bun ./_dump.ts > /tmp/rules.json
           echo "dumped $(node -p "JSON.parse(require('fs').readFileSync('/tmp/rules.json','utf8')).length") rules"
 
       - name: Measure every rule under node/V8 on this runner
