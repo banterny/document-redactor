@@ -142,7 +142,7 @@ export const IDENTIFIERS_UK = [
     category: "identifiers",
     subcategory: "uk-gmc",
     pattern:
-      /(?<=(?:GMC|General Medical Council|GMC No|GMC Number|GMC Reg|Registration No)[.:]?\s*)\d{7}(?!\d)/gi,
+      /(?![ \t])(?<=(?:GMC|General Medical Council|GMC No|GMC Number|GMC Reg|Registration No)[.:]?\s*)\d{7}(?!\d)/gi,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:
@@ -156,7 +156,7 @@ export const IDENTIFIERS_UK = [
     category: "identifiers",
     subcategory: "uk-nmc",
     pattern:
-      /(?<=(?:NMC|NMC PIN|NMC No|Nursing and Midwifery Council)[.:]?\s*)\d{2}[A-Z]\d{4}[A-Z](?![A-Za-z\d])/gi,
+      /(?![ \t])(?<=(?:NMC|NMC PIN|NMC No|Nursing and Midwifery Council)[.:]?\s*)\d{2}[A-Z]\d{4}[A-Z](?![A-Za-z\d])/gi,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:
@@ -205,7 +205,7 @@ export const IDENTIFIERS_UK = [
     category: "identifiers",
     subcategory: "uk-sort-code",
     pattern:
-      /(?<=(?:Sort Code|Sort|S\/C|SC)[.:]?\s*)\d{2}[\s\-]?\d{2}[\s\-]?\d{2}(?!\d)/gi,
+      /(?![ \t])(?<=(?:Sort Code|Sort|S\/C|SC)[.:]?\s*)\d{2}[\s\-]?\d{2}[\s\-]?\d{2}(?!\d)/gi,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:
