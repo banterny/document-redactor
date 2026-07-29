@@ -444,8 +444,24 @@ describe("legal.uk-legal-context", () => {
     expect(results[0]).not.toMatch(/^Inquest/);
   });
 
+  // BUDGETS HERE ARE WALL-CLOCK AND IN-PROCESS, so they must carry headroom
+  // for scheduler contention rather than track the measured cost. vitest runs
+  // test files as threads (`pool: "threads"`), and the thread-scoped CPU clock
+  // the deep gate uses is unavailable under bun -- see RULES_GUIDE § 7.3 and
+  // the note in redos-guard.test.ts. These four previously sat at 100/200ms
+  // while the rule itself measured 190.2-206.1ms, i.e. ON the line, and were
+  // intermittently red because of it.
+  //
+  // Post-fix they measure 2.6-4.3ms in isolation, and 51.4ms was observed for
+  // one of them during a full parallel run on a machine at load average 14-22:
+  // about 12x inflation from contention alone. 100ms is therefore roughly 25x
+  // the real cost and about 2x the worst contended observation, while still
+  // failing outright if the pattern regresses to its pre-fix shape (~190ms
+  // even on a quiet machine). A tighter 50ms was tried first and flaked.
+  const CONTENDED_BUDGET_MS = 100;
+
   it("is ReDoS-safe on long value after label", () => {
-    expectFast("uk-legal-context", "Claim No: " + "A".repeat(10000), 100);
+    expectFast("uk-legal-context", "Claim No: " + "A".repeat(10000), CONTENDED_BUDGET_MS);
   });
 
   // Regression: the pre-fix pattern had two independent unbounded `\s*`
@@ -460,20 +476,48 @@ describe("legal.uk-legal-context", () => {
   // used by the "long value after label" test above) never reached this
   // path -- only a long run of whitespace does.
   it("is ReDoS-safe on a long run of bare whitespace (no label present)", () => {
-    expectFast("uk-legal-context", " ".repeat(20000), 200);
+    expectFast("uk-legal-context", " ".repeat(20000), CONTENDED_BUDGET_MS);
   });
 
   it("is ReDoS-safe on a label followed by a long run of whitespace with no reachable value", () => {
-    expectFast("uk-legal-context", "Claim No:" + " ".repeat(20000), 200);
+    expectFast("uk-legal-context", "Claim No:" + " ".repeat(20000), CONTENDED_BUDGET_MS);
   });
 
   it("is ReDoS-safe on each lookbehind alternative independently", () => {
-    expectFast("uk-legal-context", "Case No:" + " ".repeat(20000), 200);
-    expectFast("uk-legal-context", "Reference:" + " ".repeat(20000), 200);
+    expectFast("uk-legal-context", "Case No:" + " ".repeat(20000), CONTENDED_BUDGET_MS);
+    expectFast("uk-legal-context", "Reference:" + " ".repeat(20000), CONTENDED_BUDGET_MS);
     expectFast(
       "uk-legal-context",
       "Inquest touching the death of" + " ".repeat(20000),
-      200,
+      CONTENDED_BUDGET_MS,
+    );
+  });
+
+  // NOT one of the gate's six adversarial inputs, and deliberately so. The
+  // `(?![^\n;,]{81})` guard rejects a position when no delimiter is reachable
+  // within the body's 80-character budget, which is why a bare whitespace run
+  // collapses to nothing. This input defeats that specific short-circuit: a
+  // `;` every 100 characters keeps the guard satisfied at most positions while
+  // still leaving a 100-character whitespace run behind each one for the
+  // lookbehind to walk. It is the shape that distinguishes a real fix from one
+  // tuned to the gate's own corpus, and it is the worst shape found for this
+  // rule -- the six inputs the gate does use are all an order of magnitude
+  // cheaper afterwards. It is what the nested `(?<=[.oef])` assertion in the
+  // pattern exists for; without that assertion this input stays above budget.
+  //
+  // THIS ASSERTION RUNS UNDER V8 AND SO PROVES NOTHING ABOUT SAFARI. The
+  // JavaScriptCore numbers, measured with the deep gate's own harness, are
+  // 55-90ms before the fix and 23-37ms after, against the same 50ms budget --
+  // the smallest margin either of the two fixes has, which is why it is pinned
+  // here at all. An earlier revision of the fix left this input at 68.4ms,
+  // i.e. still over budget, while every gate input was already comfortably
+  // clear: that is the whole reason this test exists.
+  it("is ReDoS-safe on interleaved whitespace runs and delimiters", () => {
+    expectFast("uk-legal-context", (" ".repeat(100) + ";").repeat(100), CONTENDED_BUDGET_MS);
+    expectFast(
+      "uk-legal-context",
+      ("Claim No" + " ".repeat(100) + ";").repeat(100),
+      CONTENDED_BUDGET_MS,
     );
   });
 

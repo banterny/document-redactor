@@ -49,8 +49,97 @@ export const ENTITIES = [
     id: "entities.ko-corp-suffix",
     category: "entities",
     subcategory: "ko-corp-suffix",
+    // ReDoS: this rule is a different bug class to the context-gated rules in
+    // legal-uk.ts / identifiers-uk.ts, and the `(?![ \t])` guard those use is
+    // measurably useless here (753.5ms -> 726.2ms). There is no positive
+    // lookbehind to short-circuit. The cost is a greedy run before a literal:
+    // `[A-Za-z0-9][A-Za-z0-9&.\-]*` consumes to end of input, `\s+` fails, and
+    // the engine backtracks through every shorter length -- and because
+    // `(?<![가-힣A-Za-z])` admits every position when the input is digits or
+    // `-`, that O(n) walk is retried at O(n) positions. Quadratic, and it
+    // bites on digits and `a-` repeats rather than on whitespace. Measured on
+    // JavaScriptCore at 10,000 chars: 764.6ms and 411.0ms against a 50ms
+    // budget.
+    //
+    // Atomic-group emulation alone does NOT fix it: measured 4.4x better but
+    // still quadratic (2.7 / 10.8 / 43.0 / 168.2ms at n = 1250 / 2500 / 5000 /
+    // 10000), i.e. still 3.4x over budget. Committing to the maximal run
+    // removes the backtracking but not the O(n) rescan at O(n) start
+    // positions. Something has to bound one of the two factors.
+    //
+    // So the START POSITIONS are split in two, and only the cheap half is
+    // bounded:
+    //
+    //   BRANCH 1 -- HARD BOUNDARY, run stays UNBOUNDED, exact.
+    //     `(?<![0-9&.\-])` on top of the outer `(?<![가-힣A-Za-z])` means the
+    //     preceding character is outside the run's own character class, so
+    //     this is a true token start. This branch is provably LINEAR: the
+    //     combined exclusion set `[가-힣A-Za-z0-9&.\-]` is a superset of both
+    //     run classes, so the maximal run from one hard boundary must stop
+    //     before the next one begins. The runs are disjoint, and their lengths
+    //     sum to at most n however the input is shaped. A real company name --
+    //     however long -- starts at a hard boundary, so it is matched in full.
+    //
+    //   BRANCH 2 -- MID-TOKEN, run bounded to `{0,255}`.
+    //     The only characters the outer lookbehind admits that are ALSO in a
+    //     run class are `[0-9&.\-]`, and those are exactly the positions that
+    //     make the rule quadratic. They are still matchable (`"&abc 주식회사"`
+    //     matches `"abc 주식회사"`, and that behaviour is preserved), but the
+    //     run is capped here so the per-position cost is a constant.
+    //
+    // Both branches use atomic-group emulation `(?=(X))\1`, JavaScript having
+    // no atomic groups. That is exact HERE by a specific argument: any shorter
+    // run leaves the next character inside the run's class, which is disjoint
+    // from `\s`, so only the maximal run can ever be followed by `\s+` and
+    // committing to it cannot lose a match. GROUP NUMBERING IS LOAD-BEARING --
+    // \1 hard-boundary ASCII, \2 hard-boundary Hangul, \3 mid-token ASCII,
+    // \4 mid-token Hangul. Inserting an alternative renumbers everything after
+    // it; entities.test.ts asserts each of the four branches independently so
+    // that breaks a named test rather than silently degrading. The runner only
+    // ever reads `m[0]` (runner.ts) and this rule has no postFilter, so the
+    // added groups are invisible downstream.
+    //
+    // KNOWN, DELIBERATE LIMIT (see the matching note on legal.uk-legal-context
+    // in legal-uk.ts -- same class of accepted, pinned cliff): a match taken by
+    // BRANCH 2, i.e. one starting immediately after one of `[0-9&.\-]`, is
+    // missed once its token exceeds 256 characters. In practice the reachable
+    // trigger is a leading `&`, `.` or `-` -- those are inside the run's class
+    // but cannot begin a run, so they leave no hard boundary for branch 1 to
+    // use. `"&" + "a".repeat(257) + " 주식회사"` is the minimal case.
+    //
+    // Confirmed by binary search, not estimated: for every predecessor context
+    // that reaches branch 2 (`&`, `.`, `-`, `가.`, `&&`, `가.&`) the two
+    // patterns agree at token length 256 and diverge at 257, and across 40,960
+    // cases with token length <= 256 there are zero divergences. A hard
+    // boundary anywhere before the token removes the limit entirely, which is
+    // why `"a".repeat(10_000) + " 주식회사"` still matches in full.
+    //
+    // Company names are single tokens by construction here (the rule requires
+    // `\s+` before 주식회사) and no real one approaches 256 characters, so this
+    // is accepted as a real, bounded limitation rather than chased further.
+    // The boundary is pinned on both sides in entities.test.ts so a future
+    // change cannot move it inwards without a failing test.
+    //
+    // On JavaScriptCore, for the two gate inputs this rule was quarantined on:
+    //
+    //   "1".repeat(10_000)   672-1159ms  ->  15.8-24.6ms
+    //   "a-".repeat(5_000)   411-826ms   ->   8.6-14.2ms
+    //
+    // Ranges rather than single figures because the before case is slow enough
+    // to exceed the gate's own 20s subprocess timeout at its 200-run count, so
+    // it has to be measured with the reduced counts the exception entries used
+    // (they recorded 764.6ms and 411.0ms), and because CPU time still inflates
+    // under machine load. The order of magnitude is the claim; both are now an
+    // order of magnitude inside the 50ms budget, and KNOWN_ENGINE_EXCEPTIONS
+    // is empty.
+    //
+    // On V8 this rule measures 0.00ms before AND after. That is not a
+    // reassurance, it is the entire reason a single-engine gate never saw
+    // this: see RULES_GUIDE § 7.1. Behaviour verified identical over 48,755
+    // cases including exhaustive tokens of length <= 3 over every character
+    // class the pattern distinguishes, in 14 predecessor contexts.
     pattern:
-      /(?<![가-힣A-Za-z])(?:[A-Za-z0-9][A-Za-z0-9&.\-]*|[가-힣][가-힣A-Za-z0-9]*)\s+주식회사(?![가-힣A-Za-z])/g,
+      /(?<![가-힣A-Za-z])(?:(?<![0-9&.\-])(?:[A-Za-z0-9](?=([A-Za-z0-9&.\-]*))\1|[가-힣](?=([가-힣A-Za-z0-9]*))\2)|[A-Za-z0-9](?=([A-Za-z0-9&.\-]{0,255}))\3|[가-힣](?=([가-힣A-Za-z0-9]{0,255}))\4)\s+주식회사(?![가-힣A-Za-z])/g,
     levels: ["standard", "paranoid"],
     languages: ["ko"],
     description:
