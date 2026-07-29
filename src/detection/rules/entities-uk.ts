@@ -100,8 +100,26 @@ export const ENTITIES_UK = [
     id: "entities.uk-inquest-context",
     category: "entities",
     subcategory: "uk-inquest-context",
+    // The `(?![ \t])` guard is NOT sufficient on its own here, and the reason
+    // is a V8 VERSION boundary rather than an engine boundary -- see
+    // docs/RULES_GUIDE.md § 7.1. The connector is additionally nested as
+    // `\s*(?::\s*)?` so the optional colon gates its own trailing whitespace
+    // run, removing the O(k) split ambiguity that two adjacent unbounded `\s*`
+    // runs create over a k-character whitespace run.
+    //
+    // Exactly equivalent, not a bound: `\s*:?\s*` and `\s*(?::\s*)?` accept
+    // the same language, and both runs stay UNBOUNDED -- so unlike
+    // legal.uk-legal-context this carries no cliff. Verified over 24,872
+    // cases, 0 diffs.
+    //
+    // Measured on `" ".repeat(10_000)` with the smoke gate's own settings:
+    // 133.74ms -> 0.09ms on V8 12.4 (node 22), against a 50ms budget. On
+    // V8 13.6 both forms measure 0.00ms.
+    //
+    // This rule matters more than most: on the `touching the death of` branch
+    // the value is the deceased's name, which no other rule catches.
     pattern:
-      /(?![ \t])(?<=(?:(?:Touching|Into)\s+the\s+death\s+of|Deceased|The (?:late|deceased))\s*:?\s*)[A-Z][A-Za-z\-']+(?:\s+[A-Z][A-Za-z\-']+){0,3}(?![a-z])/g,
+      /(?![ \t])(?<=(?:(?:Touching|Into)\s+the\s+death\s+of|Deceased|The (?:late|deceased))\s*(?::\s*)?)[A-Z][A-Za-z\-']+(?:\s+[A-Z][A-Za-z\-']+){0,3}(?![a-z])/g,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:

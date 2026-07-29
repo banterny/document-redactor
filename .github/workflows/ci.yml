@@ -21,6 +21,26 @@ jobs:
       - name: Lint GitHub Actions workflows
         uses: reviewdog/action-actionlint@v1
 
+      # PINNED DELIBERATELY TO AN OLD V8, and not to be bumped casually.
+      #
+      # vitest runs test code under node even when launched via `bun run`, so
+      # this pin decides which V8 the in-process ReDoS gate measures against.
+      # Node 22 ships V8 12.4; node 24 ships V8 13.6. That gap is not cosmetic:
+      # `entities.ko-phone-context` and `entities.uk-inquest-context` measured
+      # 0.00ms on V8 13.6 while measuring 93.8ms and 133.7ms on V8 12.4, on the
+      # same machine and the same input, because the `(?![ \t])` guard those
+      # rules rely on depends on an optimisation older V8 does not have.
+      #
+      # The shipped artefact is a browser file with no declared engine target,
+      # so the gate should measure the OLDEST V8 users plausibly have, not the
+      # newest. Tracking whatever node the runner image happens to ship would
+      # have silently stopped catching this class the moment GitHub upgraded.
+      # See docs/RULES_GUIDE.md § 7.1.
+      - name: Setup node (old V8 on purpose — see comment)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
         with:
