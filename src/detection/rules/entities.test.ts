@@ -91,6 +91,85 @@ describe("entities.ko-corp-suffix", () => {
   it("is ReDoS-safe on long suffix-like input", () => {
     expectFast("ko-corp-suffix", "A".repeat(10000) + " 주식회사");
   });
+
+  // The pattern splits its start positions into a hard-boundary branch (run
+  // unbounded, backreference \1 for ASCII and \2 for Hangul) and a mid-token
+  // branch (run bounded to {0,255}, \3 for ASCII and \4 for Hangul). Those
+  // backreference numbers are positional: inserting an alternative renumbers
+  // every group after it, and a backreference to an unmatched group matches
+  // the EMPTY STRING in JavaScript rather than failing -- so a renumbering
+  // degrades silently into "single-character company names only" instead of
+  // throwing. Each branch is therefore exercised here with a multi-character
+  // token, which is what makes the degradation visible. See entities.ts.
+  describe("start-position branches (backreference numbering is load-bearing)", () => {
+    it.each([
+      ["branch 1 — hard boundary, ASCII", "ACME 주식회사", ["ACME 주식회사"]],
+      ["branch 2 — hard boundary, Hangul", "가나다 주식회사", ["가나다 주식회사"]],
+      ["branch 3 — mid-token, ASCII after punctuation", "&abc 주식회사", ["abc 주식회사"]],
+      ["branch 4 — mid-token, Hangul after punctuation", ".가나 주식회사", ["가나 주식회사"]],
+    ])("%s", (_name, text, expected) => {
+      expect(matchOne("ko-corp-suffix", text)).toEqual(expected);
+    });
+
+    it("keeps the hard-boundary branch unbounded", () => {
+      const name = "A".repeat(10000);
+      expect(matchOne("ko-corp-suffix", `${name} 주식회사`)).toEqual([`${name} 주식회사`]);
+    });
+  });
+
+  // See the KNOWN, DELIBERATE LIMIT note in entities.ts. The mid-token branch
+  // caps its run at 256 characters so the per-position cost is a constant
+  // rather than growing with attacker-controlled input length. These pin the
+  // exact boundary -- confirmed by binary search, not estimated -- so that a
+  // future change to this pattern cannot silently move it inwards.
+  describe("known limit: mid-token starts with a token longer than 256 chars", () => {
+    it("still matches a 256-character token after a leading '&'", () => {
+      const name = "a".repeat(256);
+      expect(matchOne("ko-corp-suffix", `&${name} 주식회사`)).toEqual([`${name} 주식회사`]);
+    });
+
+    it("misses a 257-character token after a leading '&' (the accepted cliff)", () => {
+      expect(matchOne("ko-corp-suffix", `&${"a".repeat(257)} 주식회사`)).toEqual([]);
+    });
+
+    it.each([".", "-", "가."])(
+      "the same boundary holds after %s",
+      (prefix) => {
+        expect(matchOne("ko-corp-suffix", `${prefix}${"a".repeat(256)} 주식회사`)).toEqual([
+          `${"a".repeat(256)} 주식회사`,
+        ]);
+        expect(matchOne("ko-corp-suffix", `${prefix}${"a".repeat(257)} 주식회사`)).toEqual([]);
+      },
+    );
+
+    it("a hard boundary anywhere before the token removes the limit", () => {
+      const name = "a".repeat(5000);
+      // No leading punctuation, so branch 1 takes it and the run is unbounded.
+      expect(matchOne("ko-corp-suffix", `${name} 주식회사`)).toEqual([`${name} 주식회사`]);
+      // A space before the punctuation does NOT help: the token still starts
+      // immediately after `&`, so branch 2 still owns it.
+      expect(matchOne("ko-corp-suffix", ` &${name} 주식회사`)).toEqual([]);
+    });
+  });
+
+  // These run under vitest, i.e. V8, where this rule measured 0.00ms both
+  // before and after the fix even while it was catastrophic in Safari. They
+  // guard against a V8-visible regression only, and would have passed happily
+  // throughout the period this rule was quarantined. The JavaScriptCore
+  // evidence -- roughly 700-1200ms down to 9-25ms on the two inputs that were
+  // quarantined -- comes from `bun run test:redos:deep`, which is the gate
+  // that carried them as exceptions. See RULES_GUIDE § 7.1: never judge a
+  // pattern safe from one engine's numbers.
+  it.each([
+    ["a run of digits", "1".repeat(10000)],
+    ["an alternating a- run", "a-".repeat(5000)],
+    // Many hard boundaries, each followed by a run reaching to end of input.
+    // This is the shape that would defeat an unbounded-everywhere design.
+    ["an alternating &1 run", "&1".repeat(5000)],
+    ["a run of digits followed by the suffix", "1".repeat(10000) + " 주식회사"],
+  ])("is ReDoS-safe on %s", (_name, input) => {
+    expectFast("ko-corp-suffix", input);
+  });
 });
 
 describe("entities.ko-corp-abbrev", () => {

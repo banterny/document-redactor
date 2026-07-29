@@ -60,10 +60,73 @@ export const LEGAL_UK = [
     // whitespace or a newline (see legal-uk.test.ts's documented "leading
     // space/colon in the match body" behaviour), so the usual `(?![ \t])`
     // guard used elsewhere in this file cannot be applied here -- it would
-    // change which text gets captured. Instead, each lookbehind alternative
-    // is restructured two ways, both verified byte-for-byte behaviour
-    // preserving against the pre-fix pattern (see legal-uk.test.ts ReDoS
-    // regression tests):
+    // change which text gets captured. Four other techniques are used
+    // instead, every one of them exact (the match set is unchanged for ANY
+    // input, not merely for the tested corpus). Points 3 and 4 are what
+    // finally brought this rule under budget on JavaScriptCore; points 1 and
+    // 2 came first and were not enough on their own.
+    //
+    //   3. LEADING NECESSARY-CONDITION GUARD `(?![^\n;,]{81})`. The body
+    //      needs 3-80 chars of `[^\n;,]` followed by end-of-input or one of
+    //      `\n;,`. So if 81 such chars DO follow, then for every body length
+    //      k in [3,80] the character at offset k exists and is itself in
+    //      `[^\n;,]` -- it is neither end-of-input nor a delimiter -- and no
+    //      body length can succeed. The guard therefore only ever rejects
+    //      positions that could not have matched, which makes it exact by the
+    //      same commutativity argument as the `(?![ \t])` hoist elsewhere in
+    //      this file: two zero-width assertions at one position, evaluated
+    //      left to right. `{81}` is an EXACT count, so it costs one bounded
+    //      scan with no backtracking, whereas the lookbehind it now
+    //      short-circuits costs ~200 backtracking steps per position.
+    //   4. THE THREE `No`/`Ref` ALTERNATIVES ARE FACTORED INTO ONE
+    //      LOOKBEHIND. `(?<=aX)|(?<=bX)|(?<=cX)` is exactly `(?<=(?:a|b|c)X)`
+    //      when X is shared: a lookbehind succeeds iff SOME suffix of the
+    //      preceding text matches it, and the union of three such languages
+    //      is the language of the alternation. All the groups involved are
+    //      non-capturing, so there is no capture-visibility difference
+    //      either. This matters for cost because X here is the expensive
+    //      part -- `\.?\s{0,100}(?::\s{0,100})?` -- and it was being walked
+    //      three times per position over an adversarial whitespace run.
+    //      The `Inquest` alternative has a different connector and stays
+    //      separate.
+    //   5. THE NESTED `(?<=[.oef])`. A lookbehind is matched right to left, so
+    //      the engine walks the whitespace run first and only then tests the
+    //      label. At every one of the ~100 split points it was retrying the
+    //      optional dot and all four literals -- roughly five character
+    //      comparisons to reject one split. This nested assertion sits between
+    //      `\.?` and `\s{0,100}`, which is exactly where the engine arrives
+    //      after consuming the run, and rejects a bad split in ONE comparison.
+    //      It is implied rather than restrictive: whatever precedes that point
+    //      has to have matched `(?:Claim No|Case No|Ref(?:erence)?)\.?`, whose
+    //      final character is always `.`, `o` (both `No` labels), `f` (`Ref`)
+    //      or `e` (`Reference`) -- the pattern is case-sensitive, so there are
+    //      no other cases to admit. It therefore cannot reject a position the
+    //      surrounding lookbehind would have accepted. Worth 68.4ms -> 34.8ms
+    //      on the interleaved input described in legal-uk.test.ts, which is
+    //      the worst shape found for this rule and the one that decides
+    //      whether the fix is real or merely tuned to the gate's corpus. Point
+    //      3 alone left that input ABOVE budget while every gate input was
+    //      already an order of magnitude clear -- which is the whole argument
+    //      for measuring a shape the gate does not contain.
+    //
+    // On `" ".repeat(10_000)`, the gate input this rule was quarantined on:
+    // the deep gate's own assertion measured 78.0ms before (that is the number
+    // that failed once the exception was removed), and the same harness
+    // measures 3.5-5.8ms after, across repeated runs. On V8, 22.8-24.3ms
+    // before and 1.5-3.2ms after. The spread is machine load, not variance in
+    // the rule -- CPU time still inflates under contention -- so the honest
+    // claim is an order of magnitude, comfortably inside a 50ms budget, rather
+    // than a single decimal figure. JavaScriptCore is the engine that decides
+    // this: Safari and every browser on iOS.
+    //
+    // KNOWN_ENGINE_EXCEPTIONS is now empty. Behaviour verified identical to
+    // the pre-change pattern over 144,835 cases -- see the ReDoS and
+    // known-limit tests below, and `harnesses/differential-quarantine.mjs` in
+    // the handoff notes, which takes its baseline from `git show HEAD` so it
+    // cannot silently compare a pattern against itself.
+    //
+    // The two earlier restructurings, kept because they are still load-
+    // bearing for the `{0,100}` bound documented below:
     //   1. The trailing `:?\s*` is nested as `(?::\s*)?` so the optional
     //      colon gates its own trailing run of whitespace. Previously two
     //      *independent* unbounded `\s*` runs (separated only by an
@@ -99,7 +162,7 @@ export const LEGAL_UK = [
     // this pattern cannot silently move it without a failing test.
     // See docs/RULES_GUIDE.md SS 7.
     pattern:
-      /(?:(?<=Claim No\.?\s{0,100}(?::\s{0,100})?)|(?<=Case No\.?\s{0,100}(?::\s{0,100})?)|(?<=Ref(?:erence)?\.?\s{0,100}(?::\s{0,100})?)|(?<=Inquest\s{1,100}(?:touching|into)\s{1,100}the\s{1,100}death\s{1,100}of\s{0,100}))[^\n;,]{3,80}(?=$|\n|[;,])/g,
+      /(?![^\n;,]{81})(?:(?<=(?:Claim No|Case No|Ref(?:erence)?)\.?(?<=[.oef])\s{0,100}(?::\s{0,100})?)|(?<=Inquest\s{1,100}(?:touching|into)\s{1,100}the\s{1,100}death\s{1,100}of\s{0,100}))[^\n;,]{3,80}(?=$|\n|[;,])/g,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:
