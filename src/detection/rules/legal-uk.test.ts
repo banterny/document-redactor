@@ -5,6 +5,8 @@ import type { RegexRule } from "../_framework/types.js";
 
 import { LEGAL_UK } from "./legal-uk.js";
 
+import { expectWithinBudget } from "../../../tests/helpers/redos-budget.js";
+
 function findRule(subcategory: string): RegexRule {
   const rule = LEGAL_UK.find((r) => r.subcategory === subcategory);
   if (!rule) throw new Error(`Rule not found: ${subcategory}`);
@@ -17,10 +19,7 @@ function matchOne(subcategory: string, text: string): string[] {
 }
 
 function expectFast(subcategory: string, input: string, budgetMs = 50): void {
-  const start = performance.now();
-  void matchOne(subcategory, input);
-  const elapsed = performance.now() - start;
-  expect(elapsed).toBeLessThan(budgetMs);
+  expectWithinBudget(() => void matchOne(subcategory, input), budgetMs);
 }
 
 /* ------------------------------------------------------------------ */
@@ -444,24 +443,26 @@ describe("legal.uk-legal-context", () => {
     expect(results[0]).not.toMatch(/^Inquest/);
   });
 
-  // BUDGETS HERE ARE WALL-CLOCK AND IN-PROCESS, so they must carry headroom
-  // for scheduler contention rather than track the measured cost. vitest runs
-  // test files as threads (`pool: "threads"`), and the thread-scoped CPU clock
-  // the deep gate uses is unavailable under bun -- see RULES_GUIDE § 7.3 and
-  // the note in redos-guard.test.ts. These four previously sat at 100/200ms
-  // while the rule itself measured 190.2-206.1ms, i.e. ON the line, and were
-  // intermittently red because of it.
+  // These four sat at relaxed 100ms/200ms budgets while the rule itself
+  // measured 190.2-206.1ms -- ON the line -- and were intermittently red
+  // because of it. They are now on the RULES_GUIDE § 7 standard 50ms, which
+  // took two separate changes and is worth recording in order:
   //
-  // Post-fix they measure 2.6-4.3ms in isolation, and 51.4ms was observed for
-  // one of them during a full parallel run on a machine at load average 14-22:
-  // about 12x inflation from contention alone. 100ms is therefore roughly 25x
-  // the real cost and about 2x the worst contended observation, while still
-  // failing outright if the pattern regresses to its pre-fix shape (~190ms
-  // even on a quiet machine). A tighter 50ms was tried first and flaked.
-  const CONTENDED_BUDGET_MS = 100;
-
+  //   1. The rule got cheap. It measures 2.6-4.3ms here post-fix.
+  //   2. The measurement stopped being wall-clock. `expectFast` now bills
+  //      thread CPU via `tests/helpers/redos-budget.ts`. That mattered: with
+  //      the rule already fixed, a 50ms budget still flaked at 51.4ms under
+  //      ordinary background load, so an intermediate revision of this file
+  //      carried a named 100ms constant to absorb it. Thread CPU removed the
+  //      need -- verified by running the suite under 32 CPU hogs on 8 cores
+  //      (load average 186), where seven of these assertions across five files
+  //      failed before the instrument change and none failed after.
+  //
+  // So 50ms is now roughly 12x the real cost rather than a number chosen to
+  // survive the scheduler, and it still fails outright if the pattern
+  // regresses to its pre-fix shape.
   it("is ReDoS-safe on long value after label", () => {
-    expectFast("uk-legal-context", "Claim No: " + "A".repeat(10000), CONTENDED_BUDGET_MS);
+    expectFast("uk-legal-context", "Claim No: " + "A".repeat(10000));
   });
 
   // Regression: the pre-fix pattern had two independent unbounded `\s*`
@@ -476,21 +477,17 @@ describe("legal.uk-legal-context", () => {
   // used by the "long value after label" test above) never reached this
   // path -- only a long run of whitespace does.
   it("is ReDoS-safe on a long run of bare whitespace (no label present)", () => {
-    expectFast("uk-legal-context", " ".repeat(20000), CONTENDED_BUDGET_MS);
+    expectFast("uk-legal-context", " ".repeat(20000));
   });
 
   it("is ReDoS-safe on a label followed by a long run of whitespace with no reachable value", () => {
-    expectFast("uk-legal-context", "Claim No:" + " ".repeat(20000), CONTENDED_BUDGET_MS);
+    expectFast("uk-legal-context", "Claim No:" + " ".repeat(20000));
   });
 
   it("is ReDoS-safe on each lookbehind alternative independently", () => {
-    expectFast("uk-legal-context", "Case No:" + " ".repeat(20000), CONTENDED_BUDGET_MS);
-    expectFast("uk-legal-context", "Reference:" + " ".repeat(20000), CONTENDED_BUDGET_MS);
-    expectFast(
-      "uk-legal-context",
-      "Inquest touching the death of" + " ".repeat(20000),
-      CONTENDED_BUDGET_MS,
-    );
+    expectFast("uk-legal-context", "Case No:" + " ".repeat(20000));
+    expectFast("uk-legal-context", "Reference:" + " ".repeat(20000));
+    expectFast("uk-legal-context", "Inquest touching the death of" + " ".repeat(20000));
   });
 
   // NOT one of the gate's six adversarial inputs, and deliberately so. The
@@ -513,12 +510,8 @@ describe("legal.uk-legal-context", () => {
   // i.e. still over budget, while every gate input was already comfortably
   // clear: that is the whole reason this test exists.
   it("is ReDoS-safe on interleaved whitespace runs and delimiters", () => {
-    expectFast("uk-legal-context", (" ".repeat(100) + ";").repeat(100), CONTENDED_BUDGET_MS);
-    expectFast(
-      "uk-legal-context",
-      ("Claim No" + " ".repeat(100) + ";").repeat(100),
-      CONTENDED_BUDGET_MS,
-    );
+    expectFast("uk-legal-context", (" ".repeat(100) + ";").repeat(100));
+    expectFast("uk-legal-context", ("Claim No" + " ".repeat(100) + ";").repeat(100));
   });
 
   // Behaviour-preservation matrix (see docs/RULES_GUIDE.md SS 7 and the

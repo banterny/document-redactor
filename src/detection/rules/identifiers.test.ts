@@ -5,6 +5,8 @@ import type { RegexRule } from "../_framework/types.js";
 import { PII_PATTERNS, type PiiKind } from "../patterns.js";
 import { IDENTIFIERS } from "./identifiers.js";
 
+import { expectWithinBudget } from "../../../tests/helpers/redos-budget.js";
+
 const SUBCATEGORY_TO_KIND: Record<string, PiiKind> = {
   "korean-rrn": "rrn",
   "korean-brn": "brn",
@@ -37,10 +39,7 @@ function matches(subcategory: string, sample: string): string[] {
 }
 
 function expectFast(subcategory: string, input: string, budgetMs = 50): void {
-  const start = performance.now();
-  void matches(subcategory, input);
-  const elapsed = performance.now() - start;
-  expect(elapsed).toBeLessThan(budgetMs);
+  expectWithinBudget(() => void matches(subcategory, input), budgetMs);
 }
 
 describe("IDENTIFIERS registry", () => {

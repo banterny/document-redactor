@@ -5,6 +5,8 @@ import type { Candidate, HeuristicContext } from "../../_framework/types.js";
 
 import { EMAIL_DOMAIN_INFERENCE } from "./email-domain-inference.js";
 
+import { expectWithinBudget } from "../../../../tests/helpers/redos-budget.js";
+
 function makeContext(
   priorCandidates: readonly Candidate[],
   overrides: Partial<HeuristicContext> = {},
@@ -27,10 +29,7 @@ function detect(text: string, ctx: HeuristicContext) {
 }
 
 function expectFast(ctx: HeuristicContext, budgetMs = 100): void {
-  const start = performance.now();
-  void detect("", ctx);
-  const elapsed = performance.now() - start;
-  expect(elapsed).toBeLessThan(budgetMs);
+  expectWithinBudget(() => void detect("", ctx), budgetMs);
 }
 
 describe("heuristics.email-domain-inference", () => {

@@ -5,6 +5,8 @@ import type { HeuristicContext } from "../../_framework/types.js";
 
 import { REPEATABILITY } from "./repeatability.js";
 
+import { expectWithinBudget } from "../../../../tests/helpers/redos-budget.js";
+
 function makeContext(
   overrides: Partial<HeuristicContext> = {},
 ): HeuristicContext {
@@ -26,10 +28,7 @@ function detect(text: string, ctx: HeuristicContext = makeContext()) {
 }
 
 function expectFast(input: string, budgetMs = 100): void {
-  const start = performance.now();
-  void detect(input);
-  const elapsed = performance.now() - start;
-  expect(elapsed).toBeLessThan(budgetMs);
+  expectWithinBudget(() => void detect(input), budgetMs);
 }
 
 describe("heuristics.repeatability", () => {
