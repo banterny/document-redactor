@@ -166,7 +166,7 @@ export const FINANCIAL = [
     category: "financial",
     subcategory: "amount-context-ko",
     pattern:
-      /(?<=(?:금액|총액|보증금|매매대금|계약금|잔금|지급액|수수료|단가|대금)\s*[:：]?\s*)(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:\s*(?:원|만원|억원|천원))?/g,
+      /(?![ \t])(?<=(?:금액|총액|보증금|매매대금|계약금|잔금|지급액|수수료|단가|대금)\s*[:：]?\s*)(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:\s*(?:원|만원|억원|천원))?/g,
     levels: ["standard", "paranoid"],
     languages: ["ko"],
     description:

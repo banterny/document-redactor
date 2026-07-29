@@ -101,7 +101,7 @@ export const ENTITIES_UK = [
     category: "entities",
     subcategory: "uk-inquest-context",
     pattern:
-      /(?<=(?:(?:Touching|Into)\s+the\s+death\s+of|Deceased|The (?:late|deceased))\s*:?\s*)[A-Z][A-Za-z\-']+(?:\s+[A-Z][A-Za-z\-']+){0,3}(?![a-z])/g,
+      /(?![ \t])(?<=(?:(?:Touching|Into)\s+the\s+death\s+of|Deceased|The (?:late|deceased))\s*:?\s*)[A-Z][A-Za-z\-']+(?:\s+[A-Z][A-Za-z\-']+){0,3}(?![a-z])/g,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:
