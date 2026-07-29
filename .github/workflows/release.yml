@@ -44,6 +44,17 @@ jobs:
       - name: Lint GitHub Actions workflows
         uses: reviewdog/action-actionlint@v1
 
+      # Pinned to an OLD V8 deliberately, matching ci.yml. vitest runs test
+      # code under node, so this decides which V8 the ReDoS gate measures.
+      # Node 22 is V8 12.4; node 24 is V8 13.6, and two rules measured 0.00ms
+      # on the latter while taking 93.8ms and 133.7ms on the former. A release
+      # should be gated against the oldest V8 users plausibly have.
+      # See docs/RULES_GUIDE.md § 7.1.
+      - name: Setup node (old V8 on purpose — see comment)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -80,6 +91,13 @@ jobs:
 
       - name: Typecheck
         run: bun run typecheck
+
+      # `bun run test` sets CI=true with no REDOS_GUARD_MODE, which makes the
+      # ReDoS guard skip itself entirely -- so without this step a release is
+      # gated by a suite that never runs the ReDoS check at all. v1.2.2 shipped
+      # that way, past two rules that breach the budget on older V8.
+      - name: ReDoS smoke
+        run: bun run test:redos:smoke
 
       - name: Test
         run: bun run test
