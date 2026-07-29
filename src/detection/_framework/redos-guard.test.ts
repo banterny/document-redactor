@@ -78,7 +78,107 @@ const HEURISTIC_CONTEXTS: Readonly<Record<string, HeuristicContext>> = {
   },
 };
 
-function benchmarkRegex(source: string, flags: string, input: string): number {
+/**
+ * A JavaScript engine this guard benchmarks against.
+ *
+ * `node` is V8; `bun` is JavaScriptCore. BOTH must be measured, because the
+ * cost of a pattern is engine-dependent and this gate previously only ever saw
+ * V8 -- it shells out to `node`, and vitest itself runs test code under node,
+ * so the in-process paths were V8 as well. There was no JavaScriptCore
+ * coverage anywhere in the suite.
+ *
+ * That blind spot is not theoretical. Measured on this repo's own rules
+ * against `" ".repeat(10_000)`:
+ *
+ *   identifiers.uk-gmc         0.01ms on V8   vs  3651ms on JavaScriptCore
+ *   identifiers.uk-sort-code   0.00ms on V8   vs  2558ms on JavaScriptCore
+ *   identifiers.uk-nmc         0.00ms on V8   vs  2430ms on JavaScriptCore
+ *
+ * and entities.uk-inquest-context / financial.amount-context-ko are roughly
+ * CUBIC on JavaScriptCore (8x per doubling of input) while flat on V8. V8
+ * recognises that these patterns can only match starting at a digit or capital
+ * and skips the rest; JavaScriptCore does not, and pays the full backtracking
+ * cost at every position.
+ *
+ * This matters because the shipped artefact is a single HTML file with no
+ * declared browser target and no Worker -- detection runs on the main thread,
+ * and Safari plus every iOS browser is JavaScriptCore.
+ */
+interface RegexEngine {
+  readonly bin: string;
+  readonly label: string;
+}
+
+const REGEX_ENGINES: readonly RegexEngine[] = [
+  { bin: "node", label: "V8" },
+  { bin: "bun", label: "JavaScriptCore" },
+];
+
+/**
+ * Engines actually present on this machine. A missing engine is surfaced as an
+ * explicit failing test below rather than silently skipped -- silently dropping
+ * an engine is exactly how the JavaScriptCore gap survived this long.
+ */
+const AVAILABLE_ENGINES: readonly RegexEngine[] = REGEX_ENGINES.filter((engine) => {
+  try {
+    execFileSync(engine.bin, ["-e", "process.stdout.write('ok')"], {
+      encoding: "utf8",
+      timeout: 20_000,
+      env: { PATH: process.env.PATH ?? "" },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+/**
+ * Rules known to exceed the budget on a specific engine, and not yet fixed.
+ *
+ * This is a NAMED, GREPPABLE list of exactly two exceptions with their measured
+ * costs -- deliberately not a raised global budget. Raising the budget until it
+ * stops complaining hides everything at once, and is precisely how the original
+ * four context-gated rules shipped past a guard that was silently skipping.
+ *
+ * Each entry is asserted with `it.fails`, so it stays quick, keeps the suite
+ * green (meaning a red run again signals NEW breakage), and -- importantly --
+ * turns red the moment somebody actually fixes the rule, prompting removal of
+ * the exception rather than letting it rot.
+ */
+const KNOWN_ENGINE_EXCEPTIONS: Readonly<Record<string, string>> = {
+  // Measured 77.8ms against the 50ms budget. Cannot take the `(?![ \t])` guard
+  // its siblings use: this rule's value body (`[^\n;,]{3,80}`) can legitimately
+  // START with whitespace -- a documented, test-pinned behaviour that lets a
+  // label at end-of-line bridge to an indented value on the next line. Needs a
+  // different technique, not a guard.
+  'legal.uk-legal-context::JavaScriptCore::" ".repeat(10_000)':
+    "77.8ms vs 50ms budget; guard technique does not apply (body may start with whitespace)",
+
+  // Measured 764.6ms and 411.0ms. A different shape to the other rules fixed
+  // here: no positive lookbehind at all, so hoisting a guard measurably does
+  // nothing (726ms after). The cost is greedy-run backtracking in
+  // `[A-Za-z0-9][A-Za-z0-9&.\-]*` before `\s+`, retried at every position the
+  // negative lookbehind admits -- which is why it bites on digits and `a-`
+  // repeats but NOT on whitespace. Fixable with atomic-group emulation
+  // (`(?=(...))\1`), which is a behaviour-sensitive change worth its own review.
+  'entities.ko-corp-suffix::JavaScriptCore::"1".repeat(10_000)':
+    "764.6ms vs 50ms budget; greedy-run backtracking, not a lookbehind problem",
+  'entities.ko-corp-suffix::JavaScriptCore::"a-".repeat(5_000)':
+    "411.0ms vs 50ms budget; same cause as the '1' repeat case",
+};
+
+/** Reduced iteration counts for known-slow exceptions, so they fail fast rather than timing out. */
+const EXCEPTION_WARMUP_RUNS = 1;
+const EXCEPTION_MEASURED_RUNS = 3;
+
+function benchmarkRegex(
+  source: string,
+  flags: string,
+  input: string,
+  engine: RegexEngine,
+  warmupRuns: number = WARMUP_RUNS,
+  measuredRuns: number = MEASURED_RUNS,
+): number {
   const inputExpr = adversarialInputExpr(input);
   const script = `
 const input = ${inputExpr};
@@ -93,15 +193,29 @@ function scan() {
   while ((m = re.exec(input)) !== null && count < 10000) count++;
 }
 
-for (let i = 0; i < ${WARMUP_RUNS}; i++) scan();
-const start = process.hrtime.bigint();
-for (let i = 0; i < ${MEASURED_RUNS}; i++) scan();
-const elapsed = Number(process.hrtime.bigint() - start) / 1_000_000;
-process.stdout.write(String(elapsed / ${MEASURED_RUNS}));
+for (let i = 0; i < ${warmupRuns}; i++) scan();
+// CPU time, not wall-clock. A busy machine steals wall-clock from this
+// subprocess without consuming its cycles, so process.hrtime.bigint() here
+// measured scheduler noise as if it were regex cost and failed spuriously
+// under load. Catastrophic backtracking is pure CPU burn, so user+system CPU
+// is strictly MORE sensitive to the defect this gate exists to catch while
+// being immune to contention. The budget is unchanged at 50ms.
+//
+// This is sound here because each measurement gets a dedicated subprocess
+// that does nothing else, so process-wide CPU is exactly this benchmark's
+// CPU. The in-process paths below cannot use process.cpuUsage() for the same
+// reason and use process.threadCpuUsage() instead -- see benchmarkRegexSmoke.
+// process.cpuUsage() exists in both node and bun, so this script is portable
+// across both engines.
+const startCpu = process.cpuUsage();
+for (let i = 0; i < ${measuredRuns}; i++) scan();
+const cpu = process.cpuUsage(startCpu);
+const elapsed = (cpu.user + cpu.system) / 1000;
+process.stdout.write(String(elapsed / ${measuredRuns}));
 `;
 
   return Number(
-    execFileSync("node", ["-e", script], {
+    execFileSync(engine.bin, ["-e", script], {
       encoding: "utf8",
       // A genuinely catastrophic (super-polynomial or non-terminating)
       // pattern can block this subprocess indefinitely -- `bun run
@@ -120,11 +234,55 @@ process.stdout.write(String(elapsed / ${MEASURED_RUNS}));
   );
 }
 
+/**
+ * Elapsed cost for the IN-PROCESS benchmarks, in milliseconds.
+ *
+ * These run inside a vitest worker THREAD (vitest.config.ts sets
+ * `pool: "threads"`), sharing one process with every other test file executing
+ * concurrently. That rules out both of the obvious instruments:
+ *
+ * - `performance.now()` is wall-clock, so a busy machine inflates it and a
+ *   perfectly fast rule fails spuriously. This is what these paths used
+ *   before, and it is the flakiness this replaces.
+ * - `process.cpuUsage()` is process-WIDE, not thread-scoped, so it would add
+ *   every sibling worker's burn on every core. Measured directly here: an
+ *   entirely idle main thread was billed 1433ms of CPU while ONE sibling
+ *   thread burned for 1500ms. That is worse than the wall-clock it replaces.
+ *
+ * `process.threadCpuUsage()` is the correct instrument -- same measurement,
+ * scoped to this thread alone. Under the identical sibling-burn test it read
+ * 2.7ms against that same 1433ms of process-wide CPU.
+ *
+ * Catastrophic backtracking is pure CPU burn, so thread CPU time is strictly
+ * MORE sensitive to the defect this gate exists to catch while being immune to
+ * scheduler noise. Budgets are unchanged.
+ *
+ * Falls back to wall-clock where `threadCpuUsage` is unavailable (it is absent
+ * under bun, though vitest runs test code under node, where it exists).
+ */
+const THREAD_CPU_AVAILABLE = typeof process.threadCpuUsage === "function";
+
+function inProcessElapsedMs(start: number): number {
+  if (THREAD_CPU_AVAILABLE) {
+    const t = process.threadCpuUsage();
+    return (t.user + t.system) / 1000 - start;
+  }
+  return performance.now() - start;
+}
+
+function inProcessStart(): number {
+  if (THREAD_CPU_AVAILABLE) {
+    const t = process.threadCpuUsage();
+    return (t.user + t.system) / 1000;
+  }
+  return performance.now();
+}
+
 function benchmarkRegexSmoke(pattern: RegExp, input: string): number {
   for (let i = 0; i < SMOKE_WARMUP_RUNS; i++) scanRegex(pattern, input);
-  const start = performance.now();
+  const start = inProcessStart();
   for (let i = 0; i < SMOKE_MEASURED_RUNS; i++) scanRegex(pattern, input);
-  return (performance.now() - start) / SMOKE_MEASURED_RUNS;
+  return inProcessElapsedMs(start) / SMOKE_MEASURED_RUNS;
 }
 
 function scanRegex(pattern: RegExp, input: string): void {
@@ -145,15 +303,16 @@ function adversarialInputExpr(input: string): string {
   return JSON.stringify(input);
 }
 
+/** Structural parsers and heuristics run in-process too -- same instrument. */
 function benchmarkOperation(fn: () => unknown): number {
   for (let i = 0; i < FUNCTION_WARMUP_RUNS; i++) {
     void fn();
   }
-  const start = performance.now();
+  const start = inProcessStart();
   for (let i = 0; i < FUNCTION_MEASURED_RUNS; i++) {
     void fn();
   }
-  return (performance.now() - start) / FUNCTION_MEASURED_RUNS;
+  return inProcessElapsedMs(start) / FUNCTION_MEASURED_RUNS;
 }
 
 /**
@@ -174,15 +333,65 @@ describe.skipIf(skipInCi)("ReDoS guard", () => {
   const regexInputs =
     guardMode === "smoke" ? SMOKE_ADVERSARIAL_INPUTS : ADVERSARIAL_INPUTS;
 
+  if (guardMode === "deep") {
+    // Fail loudly rather than quietly narrowing coverage: a missing engine
+    // means a whole class of ReDoS is going unmeasured, which is precisely the
+    // failure this cross-engine gate exists to prevent.
+    it("benchmarks against every declared engine", () => {
+      expect(AVAILABLE_ENGINES.map((e) => e.label).sort()).toEqual(
+        REGEX_ENGINES.map((e) => e.label).sort(),
+      );
+    });
+  }
+
   for (const rule of ALL_REGEX_RULES) {
     for (const input of regexInputs) {
-      it(`${rule.id} returns within 50ms on ${input.length}-char adversarial input`, () => {
-        const elapsed =
-          guardMode === "smoke"
-            ? benchmarkRegexSmoke(rule.pattern, input)
-            : benchmarkRegex(rule.pattern.source, rule.pattern.flags, input);
-        expect(elapsed).toBeLessThan(50);
-      });
+      if (guardMode === "smoke") {
+        // Smoke stays in-process and single-engine (whichever engine runs
+        // vitest -- currently node/V8). Subprocess spawning is what made the
+        // deep gate too slow for CI in v1.1.0, so CI's day-to-day gate cannot
+        // afford cross-engine coverage. That remains a real gap: CI is V8-only.
+        it(`${rule.id} returns within 50ms on ${input.length}-char adversarial input`, () => {
+          expect(benchmarkRegexSmoke(rule.pattern, input)).toBeLessThan(50);
+        });
+        continue;
+      }
+
+      for (const engine of AVAILABLE_ENGINES) {
+        const title = `${rule.id} returns within 50ms on ${input.length}-char adversarial input [${engine.label}]`;
+        const exceptionKey = `${rule.id}::${engine.label}::${adversarialInputExpr(input)}`;
+        const known = KNOWN_ENGINE_EXCEPTIONS[exceptionKey];
+
+        if (known !== undefined) {
+          // `it.fails` asserts this DOES still breach the budget. It keeps the
+          // suite green while the exception stands, and flips red the moment
+          // the rule is actually fixed -- at which point delete the entry from
+          // KNOWN_ENGINE_EXCEPTIONS. Reduced iteration counts keep it to about
+          // a second instead of burning the full 20s subprocess timeout.
+          it.fails(`${title} — KNOWN EXCEPTION: ${known}`, () => {
+            const elapsed = benchmarkRegex(
+              rule.pattern.source,
+              rule.pattern.flags,
+              input,
+              engine,
+              EXCEPTION_WARMUP_RUNS,
+              EXCEPTION_MEASURED_RUNS,
+            );
+            expect(elapsed).toBeLessThan(50);
+          });
+          continue;
+        }
+
+        it(title, () => {
+          const elapsed = benchmarkRegex(
+            rule.pattern.source,
+            rule.pattern.flags,
+            input,
+            engine,
+          );
+          expect(elapsed).toBeLessThan(50);
+        });
+      }
     }
   }
 
