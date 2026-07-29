@@ -1,12 +1,12 @@
 # document-redactor (England & Wales)
 
-> **This is a fork of [kipeum86/document-redactor](https://github.com/kipeum86/document-redactor)** — an excellent offline DOCX redaction tool originally built for Korean legal practice. This fork adds detection rules for the legal system of **England & Wales**, with a focus on **clinical negligence proceedings** and **inquests**.
+> **This is a fork of [lowtidebuild/document-redactor](https://github.com/lowtidebuild/document-redactor)** — an excellent offline DOCX redaction tool originally built for Korean legal practice. This fork adds detection rules for the legal system of **England & Wales**, with a focus on **clinical negligence proceedings** and **inquests**.
 
-All credit for the core architecture, security model, OOXML handling, and verification pipeline belongs to the [original project](https://github.com/kipeum86/document-redactor). This fork only extends the detection rules.
+All credit for the core architecture, security model, OOXML handling, and verification pipeline belongs to the [original project](https://github.com/lowtidebuild/document-redactor). This fork extends the detection rules, and has since diverged in one way that matters — see [Differences beyond the UK rules](#differences-beyond-the-uk-rules).
 
 ## What this fork adds
 
-The upstream tool ships with detection rules tuned for Korean and US legal documents. This fork adds **20 UK-specific rules** across four new files, without modifying any existing rules:
+The upstream tool ships with detection rules tuned for Korean and US legal documents. This fork adds **20 UK-specific rules** across four new files:
 
 ### Identifiers (`identifiers-uk.ts`)
 
@@ -52,6 +52,20 @@ The upstream tool ships with detection rules tuned for Korean and US legal docum
 
 Neutral citations (`[2024] EWHC 123 (KB)`), law report citations (`[2024] 1 WLR 123`), statute references (`s.11 Limitation Act 1980`), and CPR references are **not** flagged. These are public legal knowledge — they don't identify any person, case, or place.
 
+## Differences beyond the UK rules
+
+This fork was originally additive. It is no longer purely so, and the difference is worth stating plainly rather than leaving in a commit log.
+
+**A ReDoS fix that upstream does not have.** Thirteen detection rules backtracked catastrophically on ordinary document shapes — long runs of spaces, digits or hyphens, of the kind produced by column-aligned tables, padded forms and discharge summaries. Because detection runs on the main thread, an affected document froze the browser tab until it was killed by the script timeout. Two rules were bad enough to breach their time budget at around 150 consecutive spaces.
+
+The defect is engine-specific. It affects **Safari and every browser on iOS and iPadOS** (JavaScriptCore) and does not affect Chrome, Edge or Firefox, where the same rules measure ~0.00ms. That is why it went unnoticed: a single-engine test gate cannot see it.
+
+**Eight of the thirteen are upstream's own rules** — `ko-corp-suffix`, `amount-context-ko`, `ko-identity-context`, `en-identity-context`, `ko-address-context`, `ko-phone-context`, `en-phone-context` and `date-context-ko` — and as of upstream v1.3.0 they are still unfixed there. So this fork is not merely upstream-plus-UK-rules: for a Safari or iOS user working on Korean documents, it is the more robust of the two.
+
+Every pattern change was differential-tested against the previous pattern before it landed, across more than 190,000 label, separator, padding and value combinations, and verified in real Safari rather than by proxy. Detection output is unchanged except for one deliberate, documented and test-pinned limit, described in the source.
+
+**Supporting changes.** The ReDoS test gate benchmarks every rule under **both** JavaScript engines rather than one, and measures CPU time rather than wall-clock. `docs/RULES_GUIDE.md` carries the rule-authoring contract, including the engine-dependence lesson.
+
 ## What the upstream provides (unchanged)
 
 Everything else comes from the original project:
@@ -63,9 +77,9 @@ Everything else comes from the original project:
 - **Metadata stripping** — scrubs author, company, tracked changes, comments, custom properties
 - **Field and hyperlink flattening** — catches hidden URLs in OOXML instruction text
 - **Manual additions** — type any string to add it as a redaction target
-- **1,700+ automated tests** with 90% coverage thresholds
+- **2,700+ automated tests** with 90% coverage thresholds
 
-See the [upstream README](https://github.com/kipeum86/document-redactor) and [USAGE.md](USAGE.md) for full documentation.
+See the [upstream README](https://github.com/lowtidebuild/document-redactor) and [USAGE.md](USAGE.md) for full documentation.
 
 ## Quick start
 
@@ -91,14 +105,29 @@ open dist/document-redactor.html
 
 ## Syncing with upstream
 
-This fork tracks the upstream `main` branch. To pull in future improvements:
+**A plain `git merge upstream/main` no longer works.** Upstream force-pushed its
+history, so the two repositories have **no common ancestor** — `git merge-base`
+returns nothing and git refuses the merge outright rather than producing a
+misleading result. The advice this section used to give (merge, conflicts should
+be rare) is no longer true and would fail immediately if followed.
+
+Bringing an upstream change across is now a deliberate port rather than a merge:
 
 ```bash
 git fetch upstream
-git merge upstream/main
+git diff upstream/main main -- <path>        # two-dot: no ancestor needed
+git checkout upstream/main -- <path>         # take a file wholesale, then review
 ```
 
-The UK rules live in separate files (`*-uk.ts`), so merge conflicts should be rare.
+Two things to know before porting anything:
+
+- **Do not blindly take `src/detection/rules/{entities,financial,temporal}.ts`.**
+  Upstream's copies still contain the ReDoS defect described above. Overwriting
+  the fork's versions would silently reintroduce a browser freeze on Safari and
+  iOS. Run `bun run test:redos:deep` after touching any rule file.
+- This fork deliberately does not carry some upstream files (`README.ko.md`,
+  `USAGE.ko.md`, the pnpm lockfiles, and a performance suite), so a wholesale
+  sync would reintroduce them.
 
 ## Licence
 
@@ -106,4 +135,6 @@ The UK rules live in separate files (`*-uk.ts`), so merge conflicts should be ra
 
 ## Acknowledgements
 
-This fork exists because [kipeum86](https://github.com/kipeum86) built something genuinely excellent. The security architecture (defence-in-depth with three enforcement layers), the round-trip verification pipeline, and the single-file distribution model are all outstanding engineering decisions. This fork just teaches it to recognise UK postcodes and NHS numbers.
+This fork exists because [lowtidebuild](https://github.com/lowtidebuild) built something genuinely excellent. The security architecture (defence-in-depth with three enforcement layers), the round-trip verification pipeline, and the single-file distribution model are all outstanding engineering decisions — none of which this fork changed, and all of which it depends on.
+
+What this fork adds on top is a body of England & Wales detection rules, and a ReDoS fix for a defect that made the tool unusable in Safari and on iOS. The second of those was found by testing the original author's rules under a second JavaScript engine; it says nothing about the quality of the design, which held up under considerably more adversarial scrutiny than it was built to expect.

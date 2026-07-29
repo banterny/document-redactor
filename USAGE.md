@@ -25,9 +25,9 @@ A step-by-step walkthrough for running `document-redactor` on a real file. If yo
 
 ## 1. Getting the file
 
-Go to the [latest release](https://github.com/kipeum86/document-redactor/releases/latest) and download **both** files:
+Go to the [latest release](https://github.com/banterny/document-redactor/releases/latest) and download **both** files:
 
-- **`document-redactor.html`** — the tool itself (~262 KB / 268,571 bytes, single HTML file)
+- **`document-redactor.html`** — the tool itself (~278 KB, single HTML file)
 - **`document-redactor.html.sha256`** — the integrity sidecar (89 bytes)
 
 If you received the files via Kakao, email, or USB from someone else, that's fine — the verification step in the next section is exactly designed for this case. You don't need to trust the sender; you need to verify the hash.
@@ -532,4 +532,4 @@ If you observe any behavior that contradicts this statement, it is a bug, and it
 
 ---
 
-_That's the full v1.1 guide. For architecture rationale, see the [README](README.md). For detection rule internals, see [docs/RULES_GUIDE.md](docs/RULES_GUIDE.md). Bug reports and feature requests: [GitHub Issues](https://github.com/kipeum86/document-redactor/issues)._
+_That's the full v1.1 guide. For architecture rationale, see the [README](README.md). For detection rule internals, see [docs/RULES_GUIDE.md](docs/RULES_GUIDE.md). Bug reports and feature requests: [GitHub Issues](https://github.com/banterny/document-redactor/issues)._
