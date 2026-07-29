@@ -440,14 +440,14 @@ describe.skipIf(skipInCi)("ReDoS guard", () => {
         // vitest -- currently node/V8). Subprocess spawning is what made the
         // deep gate too slow for CI in v1.1.0, so CI's day-to-day gate cannot
         // afford cross-engine coverage. That remains a real gap: CI is V8-only.
-        it(`${rule.id} returns within 50ms on ${input.length}-char adversarial input`, () => {
+        it(`${rule.id} returns within 50ms on ${adversarialInputExpr(input)}`, () => {
           expect(benchmarkRegexSmoke(rule.pattern, input)).toBeLessThan(50);
         });
         continue;
       }
 
       for (const engine of AVAILABLE_ENGINES) {
-        const title = `${rule.id} returns within 50ms on ${input.length}-char adversarial input [${engine.label}]`;
+        const title = `${rule.id} returns within 50ms on ${adversarialInputExpr(input)} [${engine.label}]`;
         const exceptionKey = `${rule.id}::${engine.label}::${adversarialInputExpr(input)}`;
         const known = KNOWN_ENGINE_EXCEPTIONS[exceptionKey];
 
