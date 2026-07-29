@@ -10,8 +10,8 @@ _Released YYYY-MM-DD_
 
 ## Download
 
-- **[`document-redactor.html`](https://github.com/kipeum86/document-redactor/releases/download/vX.Y.Z/document-redactor.html)** — the tool itself (single HTML file)
-- **[`document-redactor.html.sha256`](https://github.com/kipeum86/document-redactor/releases/download/vX.Y.Z/document-redactor.html.sha256)** — integrity sidecar
+- **[`document-redactor.html`](https://github.com/banterny/document-redactor/releases/download/vX.Y.Z/document-redactor.html)** — the tool itself (single HTML file)
+- **[`document-redactor.html.sha256`](https://github.com/banterny/document-redactor/releases/download/vX.Y.Z/document-redactor.html.sha256)** — integrity sidecar
 
 ## Verify your download (recommended)
 
@@ -37,7 +37,7 @@ Or compare this hash by eye:
 
 ## For the curious
 
-- **Source:** https://github.com/kipeum86/document-redactor
+- **Source:** https://github.com/banterny/document-redactor
 - **License:** Apache 2.0
 - **Build:** Bun + Vite + Svelte 5, single-file HTML, zero network requests
 - **Invariants:** CSP `default-src 'none'`, no `fetch`/`XHR`/`WebSocket` in source (lint-enforced), 3 MB bundle cap
