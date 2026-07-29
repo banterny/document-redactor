@@ -5,6 +5,8 @@ import type { RegexRule } from "../_framework/types.js";
 
 import { ENTITIES } from "./entities.js";
 
+import { expectWithinBudget } from "../../../tests/helpers/redos-budget.js";
+
 function findRule(subcategory: string): RegexRule {
   const rule = ENTITIES.find((r) => r.subcategory === subcategory);
   if (!rule) throw new Error(`Rule not found: ${subcategory}`);
@@ -17,10 +19,7 @@ function matchOne(subcategory: string, text: string): string[] {
 }
 
 function expectFast(subcategory: string, input: string, budgetMs = 50): void {
-  const start = performance.now();
-  void matchOne(subcategory, input);
-  const elapsed = performance.now() - start;
-  expect(elapsed).toBeLessThan(budgetMs);
+  expectWithinBudget(() => void matchOne(subcategory, input), budgetMs);
 }
 
 describe("ENTITIES registry", () => {

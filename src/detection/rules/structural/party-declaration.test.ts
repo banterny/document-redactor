@@ -4,15 +4,14 @@ import type { StructuralDefinition } from "../../_framework/types.js";
 
 import { PARTY_DECLARATION } from "./party-declaration.js";
 
+import { expectWithinBudget } from "../../../../tests/helpers/redos-budget.js";
+
 function parseOne(text: string): readonly StructuralDefinition[] {
   return PARTY_DECLARATION.parse(text);
 }
 
 function expectFast(input: string, budgetMs = 100): void {
-  const start = performance.now();
-  void parseOne(input);
-  const elapsed = performance.now() - start;
-  expect(elapsed).toBeLessThan(budgetMs);
+  expectWithinBudget(() => void parseOne(input), budgetMs);
 }
 
 describe("structural.party-declaration", () => {
