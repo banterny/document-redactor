@@ -149,7 +149,7 @@ export const ENTITIES = [
     category: "entities",
     subcategory: "ko-identity-context",
     pattern:
-      /(?<=(?:대표자|성명|이름|법인명|회사명|상호|소속|직함|직위)\s*[:：]?\s*)(?:[A-Za-z][A-Za-z0-9&.\-]*|[가-힣]{2,6})/g,
+      /(?![ \t])(?<=(?:대표자|성명|이름|법인명|회사명|상호|소속|직함|직위)\s*[:：]?\s*)(?:[A-Za-z][A-Za-z0-9&.\-]*|[가-힣]{2,6})/g,
     levels: ["standard", "paranoid"],
     languages: ["ko"],
     description:
@@ -160,7 +160,7 @@ export const ENTITIES = [
     category: "entities",
     subcategory: "en-identity-context",
     pattern:
-      /(?<=(?:Full\s+Name|Company\s+Name|Name|Company|Representative|Contact|Signatory|Client|Counterparty)\s*:\s*)[A-Z][A-Za-z.\-]*(?:\s+[A-Z][A-Za-z.\-]*){0,3}/g,
+      /(?![ \t])(?<=(?:Full\s+Name|Company\s+Name|Name|Company|Representative|Contact|Signatory|Client|Counterparty)\s*:\s*)[A-Z][A-Za-z.\-]*(?:\s+[A-Z][A-Za-z.\-]*){0,3}/g,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:
@@ -171,7 +171,7 @@ export const ENTITIES = [
     category: "entities",
     subcategory: "ko-address-context",
     pattern:
-      /(?<=(?:주소|소재지|거주지|본점\s*주소|본사\s*주소|지점\s*주소|사업장\s*주소|연락지|주민등록지|등록기준지)\s*[:：]?\s*)[^\s:：].{4,99}?(?=$|\n|;)/g,
+      /(?![ \t])(?<=(?:주소|소재지|거주지|본점\s*주소|본사\s*주소|지점\s*주소|사업장\s*주소|연락지|주민등록지|등록기준지)\s*[:：]?\s*)[^\s:：].{4,99}?(?=$|\n|;)/g,
     levels: ["standard", "paranoid"],
     languages: ["ko"],
     description:
@@ -193,7 +193,7 @@ export const ENTITIES = [
     category: "entities",
     subcategory: "ko-phone-context",
     pattern:
-      /(?<=(?:전화번호|전화|연락처|휴대전화|휴대폰|핸드폰|팩스번호|팩스|Fax|Tel)\s*[:：]?\s*)[+\d(][+\d .()\-]{6,24}(?=$|\n|;|[^\d+ .()\-])/g,
+      /(?![ \t])(?<=(?:전화번호|전화|연락처|휴대전화|휴대폰|핸드폰|팩스번호|팩스|Fax|Tel)\s*[:：]?\s*)[+\d(][+\d .()\-]{6,24}(?=$|\n|;|[^\d+ .()\-])/g,
     levels: ["standard", "paranoid"],
     languages: ["ko"],
     description:
@@ -204,7 +204,7 @@ export const ENTITIES = [
     category: "entities",
     subcategory: "en-phone-context",
     pattern:
-      /(?<=(?:Phone Number|Telephone|Phone|Mobile|Cell|Tel|Fax) *: *)[+\d(][+\d .()\-]{6,24}(?=$|\n|;|[^\d+ .()\-])/g,
+      /(?![ \t])(?<=(?:Phone Number|Telephone|Phone|Mobile|Cell|Tel|Fax) *: *)[+\d(][+\d .()\-]{6,24}(?=$|\n|;|[^\d+ .()\-])/g,
     levels: ["standard", "paranoid"],
     languages: ["en"],
     description:
