@@ -576,7 +576,9 @@ Before committing a new rule:
 - [ ] **Bounded repetition.** Prefer `{1,10}` over `*` when you have a known maximum length. `\d{1,12}` beats `\d+` because it gives the engine an upper bound.
 - [ ] **Character class alternation minimized.** `[abc]` beats `(a|b|c)`. `[\s-]` beats `(\s|-)`.
 - [ ] **Lookbehind/lookahead for boundaries, not `\b` in CJK contexts.** `\b` is ASCII-only.
-- [ ] **Test with adversarial input.** See § 7.3.
+- [ ] **Guard a variable-length lookbehind with a cheap zero-width check, placed BEFORE it.** A pattern shaped `(?<=LABEL\s*:?\s*)BODY` retries the whole lookbehind at every position in a whitespace run. If `BODY` cannot begin with a space or tab — a digit, a capital, `[+\d(]`, an explicit `[^\s…]` class — then writing `(?![ \t])(?<=…)BODY` lets the engine reject those positions in O(1). Order matters: both are zero-width assertions at the same position, so conjunction is commutative and the match set is unchanged, but engines evaluate left to right. Putting the guard *after* the lookbehind buys nothing.
+- [ ] **Never judge a pattern safe from one engine's numbers.** This is the item that has cost the most. V8 (Chrome, Edge, Node) can often skip positions where the first *consuming* character cannot match, which hides the cost of a variable-length lookbehind completely. JavaScriptCore (Safari, and every browser on iOS) does not. Thirteen rules in this repo measured ~0.00ms under V8 and 40ms–3.7s under JavaScriptCore on the same input; two were cubic, breaching the budget at ~150 consecutive whitespace characters. The shipped artefact is a browser file with no engine restriction and detection runs on the main thread, so a slow rule freezes the tab. `bun run test:redos:deep` benchmarks both engines — trust it over a single-engine measurement, including your own. (Firefox/SpiderMonkey was checked and behaves like V8.)
+- [ ] **Test with adversarial input, including long *padding*, not just a long *value*.** See § 7.3. A test like `expectFast("rule", "Label: " + "A".repeat(10000))` fills with a non-whitespace character and never touches the whitespace pathology at all — it passes even against a genuinely catastrophic rule. Vary the run *between* label and value.
 
 ### 7.2 What the runner enforces at registration time
 
@@ -625,7 +627,13 @@ describe("ReDoS guard", () => {
 });
 ```
 
-This adds `(# regex rules) × 6` test cases — for 30 regex rules that's 180 tests. Still runs under 2 seconds. **A rule that fails this test must be redesigned before merge, not quarantined.**
+The sketch above is the *shape*; the real `redos-guard.test.ts` has since diverged from it in three ways that matter, and copying the sketch back over it would reintroduce two silent blind spots:
+
+1. **It benchmarks two engines, not one.** Deep mode shells out to both `node` (V8) and `bun` (JavaScriptCore) per rule per input. A single-engine gate is the bug described in § 7.1 — thirteen rules passed a V8-only gate while being catastrophic in Safari. Deep mode therefore needs `bun` on `PATH`, and asserts every declared engine is actually present so a missing one fails loudly instead of quietly halving coverage.
+2. **It measures CPU time, not wall-clock.** `performance.now()` inflates under load, which produces spurious failures — and the tempting response to a flaky budget is to raise it, which removes the gate's teeth. Catastrophic backtracking is pure CPU burn, so CPU time is *more* sensitive to the real defect while being immune to scheduler noise. The subprocess path uses `process.cpuUsage()`; the in-process paths use `process.threadCpuUsage()`, because `process.cpuUsage()` is process-wide and vitest runs test files as threads (measured: an idle thread billed 1433ms while a sibling burned 1500ms).
+3. **Smoke vs deep.** CI runs `REDOS_GUARD_MODE=smoke`, which stays in-process and single-engine — subprocess spawning is what made the gate too slow for CI in v1.1.0. **CI is therefore V8-only; the cross-engine check is local.**
+
+Cost: 790 tests, ~88s locally. **A rule that fails this test must be redesigned before merge, not quarantined.** The `KNOWN_ENGINE_EXCEPTIONS` table exists for rules that cannot take the § 7.1 guard at all; each entry carries its measured cost and is asserted with `it.fails`, so it turns red the moment the rule is fixed. Adding to that table is a last resort, not a way to silence a red test.
 
 ### 7.4 When you find a ReDoS
 

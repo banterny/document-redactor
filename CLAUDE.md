@@ -20,8 +20,16 @@ bunx tsc --noEmit    # type-check TypeScript
 ReDoS fuzz is skipped in CI. Run locally before merging any regex change:
 
 ```bash
-SKIP_REDOS_FUZZ=0 bun run test
+SKIP_REDOS_FUZZ=0 bun run test   # full suite incl. cross-engine ReDoS gate (~90s)
+bun run test:redos:deep          # the gate alone: 790 tests, ~88s
 ```
+
+The deep gate benchmarks every rule under **both** `node` (V8) and `bun`
+(JavaScriptCore), so it needs both on `PATH`. This is not optional thoroughness:
+rule cost is engine-dependent, and a V8-only gate previously passed thirteen
+rules that are catastrophic in Safari and on iOS. CI runs the smoke variant,
+which is in-process and therefore V8-only — the cross-engine check is local.
+See `docs/RULES_GUIDE.md` § 7.1 and § 7.3.
 
 ## Trust boundaries
 
@@ -77,7 +85,7 @@ Prompt-injection defense belongs in the LLM application layer, not here.
 - Framework: vitest (config in `vitest.config.ts`)
 - Test command: `bun run test`
 - Coverage target: ≥95% branches, ≥98% statements, 100% functions on `src/detection/**`
-- ReDoS fuzz: `src/detection/_framework/redos-guard.test.ts` — skipped in CI, run locally
+- ReDoS fuzz: `src/detection/_framework/redos-guard.test.ts` — cross-engine (V8 + JavaScriptCore), CPU-time budgets; deep mode local-only, CI runs the V8-only smoke variant
 - Rule tests: co-located `.test.ts` next to each rule file, minimum 5–7 tests per rule
 
 ## Rule authoring
