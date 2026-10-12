@@ -131,6 +131,10 @@ export default defineConfig({
   plugins: [svelte(), viteSingleFile(), shipGate()],
   build: {
     target: "es2022",
+    // esbuild is an OPTIONAL peer of Vite 8, so it is a direct
+    // devDependency on purpose. It used to arrive only by accident, via
+    // vitest 2's nested vite 5; removing it from package.json breaks
+    // this build with "Cannot find package 'esbuild'".
     cssMinify: "esbuild",
     // vite-plugin-singlefile handles inlining; keep outDir stable.
     outDir: "dist",
